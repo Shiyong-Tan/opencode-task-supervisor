@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.lab/
+.opencode/
+*.tgz
+SHA256SUMS

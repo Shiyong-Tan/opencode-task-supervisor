@@ -1,0 +1,33 @@
+{
+  "name": "opencode-task-supervisor",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Task supervision, permission evidence and process tracking for OpenCode",
+  "scripts": {
+    "build": "tsc && node scripts/build-process-host.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test test/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.29",
+    "@opencode-ai/sdk": "1.18.29"
+  },
+  "devDependencies": {
+    "@types/node": "24.12.2",
+    "typescript": "5.9.3"
+  },
+  "main": "./dist/plugin.js",
+  "types": "./dist/plugin.d.ts",
+  "exports": "./dist/plugin.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shiyong-Tan/opencode-task-supervisor.git"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}

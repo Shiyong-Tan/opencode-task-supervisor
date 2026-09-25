@@ -1,0 +1,28 @@
+name: Build release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: npm pack
+      - shell: pwsh
+        run: |
+          $asset = Get-Item opencode-task-supervisor-*.tgz
+          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
+          "$hash  $($asset.Name)" | Set-Content -Encoding ascii SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencode-task-supervisor-release
+          path: |
+            opencode-task-supervisor-*.tgz
+            SHA256SUMS
