@@ -1,3 +1,4 @@
+import { supportsProcessTracking, untrackedProcessGuidance } from './platform-capabilities.ts';
 import { tool } from '@opencode-ai/plugin';
 import type { Plugin } from '@opencode-ai/plugin';
 import { clock, bounded } from './clock.ts';
@@ -43,10 +44,10 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
       await appendFile(join(directory, '.supervisor-events.jsonl'), JSON.stringify({ at: Date.now(), ...event }) + '\n');
   };
   const managed = options?.managedLab ? await managedTools(supervisor, notifications, options.managedLab as ManagedLabOptions, audit) : undefined;
-  const tracked = !managed && !readonlyLab ? await processTools(supervisor, directory) : undefined;
+  const tracked = !managed && !readonlyLab && supportsProcessTracking(process.platform) ? await processTools(supervisor, directory) : undefined;
   const openCodeVersion = scopeId ? await api.verifyVersion(AbortSignal.timeout(5000)) : undefined;
   view = scopeId && openCodeVersion ? new ViewProjection(supervisor.registry, clock,
-    { pluginVersion: '0.1.0', openCodeVersion, isolationId: scopeId },
+    { pluginVersion: '0.1.1', openCodeVersion, isolationId: scopeId },
     () => managed?.executions.all() ?? tracked?.executions.all() ?? [], () => notifications?.all() ?? [], () => new Date(),
     parent => identityOwner!.forParent(parent), normal ? randomBytes(32).toString('hex') : undefined) : undefined;
   const readonlyRuntime = readonlyLab && view ? await startReadonlyLab(readonlyLab, api, view) : undefined;
@@ -130,7 +131,7 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
           if (selection) await ctx.ask({ permission: 'task', patterns: [selection.agent], always: ['*'],
             metadata: { subagent_type: selection.agent, supervisorTaskId: args.taskId } });
           if (ctx.abort.aborted) throw new Error('Dispatch aborted before child creation');
-          const value = supervisor.dispatch(args.taskId, ctx.sessionID, args.prompt + (tracked ? processGuidance : ''), selection, 'inline', args.description);
+          const value = supervisor.dispatch(args.taskId, ctx.sessionID, args.prompt + (tracked ? processGuidance : !managed && !readonlyLab ? untrackedProcessGuidance : ''), selection, 'inline', args.description);
           ctx.metadata({ title: value.title, metadata: { taskId: value.taskId, agent: value.agent } });
           await audit({ type: 'dispatch_started', ...value, callerMessageId: ctx.messageID, elapsedMs: performance.now() - start });
           return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort));

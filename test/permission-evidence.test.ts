@@ -35,3 +35,16 @@ test('unmatched permission tools remain unknown instead of inventing cancellatio
   const observed = snapshotFrom('ses_child', message('completed'), {}, [{ ...permission, tool: { messageID: 'msg_other', callID: 'call_a' } }]);
   assert.equal(observed.permissions![0]!.state, 'unknown'); assert.deepEqual(observed.permissionIds, ['per_a']);
 });
+
+
+test('pending questions report waiting_question instead of a stall, and aborted residuals expire', () => {
+  const clock = new FakeClock(), registry = new Registry(clock, 1), task = registry.register('ses_parent');
+  task.phase = 'dispatching'; registry.attach(task, 'ses_child');
+  const request = { id: 'que_a', sessionID: 'ses_child', tool: { messageID: 'msg_a', callID: 'call_a' } };
+  const live = snapshotFrom('ses_child', message('running'), {}, [], [request]);
+  registry.apply(task, live);
+  assert.equal(task.health, 'waiting_question'); assert.deepEqual(task.questionIds, ['que_a']);
+  const ended = snapshotFrom('ses_child', message('error', true), {}, [], [request]);
+  assert.deepEqual(ended.questionIds, []);
+  registry.apply(task, ended); assert.notEqual(task.health, 'waiting_question');
+});

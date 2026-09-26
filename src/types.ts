@@ -1,6 +1,6 @@
 import type { AgentDispatch } from './agent-dispatch.ts';
 export type Phase = 'registered' | 'dispatching' | 'active' | 'terminal';
-export type Health = 'running' | 'waiting_permission' | 'suspected_stall' | 'unreachable' | 'ended' | 'cancel_unknown';
+export type Health = 'running' | 'waiting_permission' | 'waiting_question' | 'suspected_stall' | 'unreachable' | 'ended' | 'cancel_unknown';
 export interface Identity { taskId: string; attemptId: string; parentSessionId: string; childSessionId?: string }
 export interface TaskResult {
   messageId: string;
@@ -17,6 +17,7 @@ export interface Snapshot {
   activity: string[];
   assistantActivity: string[];
   permissionIds: string[];
+  questionIds?: string[];
   pendingTools: number;
   terminal?: 'completed' | 'failed';
   process: 'unknown' | 'active' | 'inactive';
@@ -25,6 +26,7 @@ export interface Snapshot {
   result?: TaskResult;
 }
 export interface Task extends Identity {
+  questionIds?: string[];
   permissions?: PermissionEvidence[];
   permissionObservation?: 'current' | 'unavailable';
   agent?: string;

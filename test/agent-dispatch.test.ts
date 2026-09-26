@@ -14,6 +14,7 @@ function fixture() {
     '/session/ses_child': { id: 'ses_child' },
     '/session/status': {},
     '/permission': [],
+    '/question': [],
     '/session/ses_child/message': [{ info: { id: 'msg_final', sessionID: 'ses_child', role: 'assistant',
       time: { created: 1, completed: 2 }, finish: 'stop' }, parts: [{ type: 'text', text: 'Verified child result' }] }],
     '/agent': [

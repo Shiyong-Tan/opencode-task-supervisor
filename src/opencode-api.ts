@@ -30,7 +30,7 @@ function permissionsFrom(value: unknown): ObjectValue[] {
   });
 }
 
-export function snapshotFrom(sessionId: string, messagesValue: unknown, statusesValue: unknown, permissionsValue: unknown): Snapshot {
+export function snapshotFrom(sessionId: string, messagesValue: unknown, statusesValue: unknown, permissionsValue: unknown, questionsValue: unknown = []): Snapshot {
   const statuses = statusesFrom(statusesValue);
   const rawStatus = statuses[sessionId] === undefined ? 'idle' : object(statuses[sessionId]).type;
   if (!['busy', 'retry', 'idle'].includes(String(rawStatus))) throw new Error('Unsupported session status');
@@ -83,6 +83,12 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
     }
   }
   if (terminalCreated < latestAssistantCreated || terminalCreated < latestUserCreated) { terminal = undefined; result = undefined; }
+  const questionIds = permissionsFrom(questionsValue).filter(q => {
+    if (q.sessionID !== sessionId) return false;
+    const tool = q.tool && typeof q.tool === 'object' ? object(q.tool) : {};
+    const state = toolStates.get(`${tool.messageID}:${tool.callID}`);
+    return !state || (!state.aborted && ['pending', 'running'].includes(state.status));
+  }).map(q => String(q.id));
   const permissions: NonNullable<Snapshot['permissions']> = permissionsFrom(permissionsValue).filter(p => p.sessionID === sessionId).map(p => {
     const ref = p.tool && typeof p.tool === 'object' ? object(p.tool) : {};
     const messageId = typeof ref.messageID === 'string' ? ref.messageID : undefined;
@@ -94,7 +100,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
       state: tool?.aborted || ['completed', 'error'].includes(tool?.status ?? '') ? 'expired' : tool ? 'pending' : 'unknown' };
   });
   const permissionIds = permissions.filter(p => p.state !== 'expired').map(p => p.requestId);
-  return { sessionId, status: rawStatus as Snapshot['status'], activity, assistantActivity,
+  return { questionIds, sessionId, status: rawStatus as Snapshot['status'], activity, assistantActivity,
     permissionIds, permissions, pendingTools, terminal, process: 'unknown', messageIds, result };
 }
 
@@ -149,11 +155,11 @@ export class OpenCodeApi implements Api {
     // Existence query is essential: idle sessions are absent from /session/status.
     const session = object(await this.request(`/session/${encodeURIComponent(sessionId)}`, 'GET', signal));
     if (session.id !== sessionId) throw new Error('Session identity mismatch');
-    const [messages, statuses, permissions] = await Promise.all([
+    const [messages, statuses, permissions, questions] = await Promise.all([
       this.request(`/session/${encodeURIComponent(sessionId)}/message`, 'GET', signal),
-      this.request('/session/status', 'GET', signal), this.request('/permission', 'GET', signal),
+      this.request('/session/status', 'GET', signal), this.request('/permission', 'GET', signal), this.request('/question', 'GET', signal),
     ]);
-    return snapshotFrom(sessionId, messages, statuses, permissions);
+    return snapshotFrom(sessionId, messages, statuses, permissions, questions);
   }
   async abort(sessionId: string, signal: AbortSignal): Promise<void> {
     const result = await this.request(`/session/${encodeURIComponent(sessionId)}/abort`, 'POST', signal);

@@ -15,7 +15,7 @@ export interface ConnectionLease extends ServiceBinding {
   instanceId: string;
   bridgeOrigin: string;
   opencodeVersion: OpenCodeVersion;
-  pluginVersion: '0.1.0';
+  pluginVersion: '0.1.0' | '0.1.1';
   issuedAt: number;
   expiresAt: number;
 }
@@ -57,8 +57,18 @@ export function canonicalWindowsWorkspace(realPath: string): string {
   return normalized;
 }
 
+
+/** Preserve POSIX case and literal backslashes; never collapse distinct workspaces. */
+export function canonicalWorkspace(realPath: string): string {
+  if (/^[a-zA-Z]:[\\/]/.test(realPath)) return canonicalWindowsWorkspace(realPath);
+  if (!realPath.startsWith('/') || realPath.startsWith('//') || /[\x00-\x1f]/.test(realPath)) return fail();
+  const normalized = realPath === '/' ? '/' : realPath.replace(/\/+$/, '');
+  if (normalized !== '/' && normalized.slice(1).split('/').some(part => !part || part === '.' || part === '..')) return fail();
+  return normalized;
+}
+
 function binding(value: ServiceBinding): ServiceBinding {
-  if (canonicalWindowsWorkspace(value.workspace) !== value.workspace) return fail();
+  if (canonicalWorkspace(value.workspace) !== value.workspace) return fail();
   return { integrationId: id(value.integrationId), serviceId: id(value.serviceId),
     workspace: value.workspace, serviceOrigin: origin(value.serviceOrigin) };
 }
@@ -67,7 +77,7 @@ function parseLease(value: unknown): ConnectionLease {
   const raw = record(value);
   exactKeys(raw, leaseKeys);
   if (raw.schemaVersion !== 1 || raw.kind !== 'normal-gui' || !isOpenCodeVersion(raw.opencodeVersion)
-    || raw.pluginVersion !== '0.1.0' || typeof raw.workspace !== 'string'
+    || (raw.pluginVersion !== '0.1.0' && raw.pluginVersion !== '0.1.1') || typeof raw.workspace !== 'string'
     || !Number.isSafeInteger(raw.issuedAt) || !Number.isSafeInteger(raw.expiresAt)) return fail();
   const issuedAt = raw.issuedAt as number;
   const expiresAt = raw.expiresAt as number;
@@ -75,7 +85,7 @@ function parseLease(value: unknown): ConnectionLease {
   const owner = binding({ integrationId: id(raw.integrationId), serviceId: id(raw.serviceId),
     workspace: raw.workspace, serviceOrigin: origin(raw.serviceOrigin) });
   return { schemaVersion: 1, kind: 'normal-gui', ...owner, instanceId: id(raw.instanceId),
-    bridgeOrigin: origin(raw.bridgeOrigin), opencodeVersion: raw.opencodeVersion, pluginVersion: '0.1.0', issuedAt, expiresAt };
+    bridgeOrigin: origin(raw.bridgeOrigin), opencodeVersion: raw.opencodeVersion, pluginVersion: raw.pluginVersion, issuedAt, expiresAt };
 }
 
 function mac(key: string, domain: string, value: unknown): string {

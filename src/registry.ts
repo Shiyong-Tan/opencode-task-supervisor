@@ -35,6 +35,7 @@ export class Registry {
     const task = this.current(id);
     if (!task || task.phase === 'terminal' || snapshot.sessionId !== task.childSessionId) return;
     task.lastCheckedAt = this.clock.now();
+    task.questionIds = snapshot.questionIds ? [...snapshot.questionIds] : [];
     task.permissions = snapshot.permissions ? structuredClone(snapshot.permissions) : undefined;
     task.permissionObservation = 'current';
     const evidence = [...snapshot.activity, ...(snapshot.processActivity ? [`process:${snapshot.processActivity}`] : [])];
@@ -43,7 +44,7 @@ export class Registry {
     task.process = snapshot.process;
     task.reason = undefined;
     // Completion requires final assistant evidence and idle, with no unresolved tools/permissions.
-    if (snapshot.terminal && snapshot.status === 'idle' && !snapshot.pendingTools && !snapshot.permissionIds.length && task.cancellation === 'none') {
+    if (snapshot.terminal && snapshot.status === 'idle' && !snapshot.pendingTools && !snapshot.permissionIds.length && !snapshot.questionIds?.length && task.cancellation === 'none') {
       task.phase = 'terminal'; task.health = 'ended'; task.outcome = snapshot.terminal;
       task.result = snapshot.result ? { ...snapshot.result } : undefined;
       return;
@@ -57,6 +58,7 @@ export class Registry {
         'OpenCode reports unresolved permission requests; inspect permissions for request ID, owning session, tool and scope';
       return;
     }
+    if (snapshot.questionIds?.length) { task.health = 'waiting_question'; task.reason = 'Child is waiting for user answers in the GUI question card'; return; }
     if (snapshot.process === 'active') { task.health = 'running'; return; }
     if (this.clock.now() - task.lastProgressAt >= this.staleMs) {
       task.health = 'suspected_stall';
