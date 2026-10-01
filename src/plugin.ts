@@ -47,7 +47,7 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
   const tracked = !managed && !readonlyLab && supportsProcessTracking(process.platform) ? await processTools(supervisor, directory) : undefined;
   const openCodeVersion = scopeId ? await api.verifyVersion(AbortSignal.timeout(5000)) : undefined;
   view = scopeId && openCodeVersion ? new ViewProjection(supervisor.registry, clock,
-    { pluginVersion: '0.1.1', openCodeVersion, isolationId: scopeId },
+    { pluginVersion: '0.1.2', openCodeVersion, isolationId: scopeId },
     () => managed?.executions.all() ?? tracked?.executions.all() ?? [], () => notifications?.all() ?? [], () => new Date(),
     parent => identityOwner!.forParent(parent), normal ? randomBytes(32).toString('hex') : undefined) : undefined;
   const readonlyRuntime = readonlyLab && view ? await startReadonlyLab(readonlyLab, api, view) : undefined;

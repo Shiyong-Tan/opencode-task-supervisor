@@ -57,7 +57,7 @@ export async function startReadonlyLab(lab: Awaited<ReturnType<typeof prepareRea
       return view.snapshot(parent);
     } });
     await descriptor.writeFile(JSON.stringify({ schemaVersion: 1, isolationId: lab.isolationId,
-      instanceId: view.instanceId, workspace: lab.workspace, openCodeVersion, pluginVersion: '0.1.1',
+      instanceId: view.instanceId, workspace: lab.workspace, openCodeVersion, pluginVersion: '0.1.2',
       service: { endpoint: service.origin, authorization }, bridge: { endpoint: bridge.endpoint, token: bridge.token },
     }), 'utf8');
     await descriptor.sync();

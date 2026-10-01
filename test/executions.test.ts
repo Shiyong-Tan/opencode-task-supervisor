@@ -5,7 +5,7 @@ import { Registry } from '../src/registry.ts';
 import type { JobSample, JobTransport } from '../src/job-client.ts';
 import { FakeClock, flush } from './helpers.ts';
 
-function setup() {
+function setup(multiple = false) {
   const clock = new FakeClock(), registry = new Registry(clock);
   const task = registry.register('parent'); task.phase = 'dispatching'; registry.attach(task, 'child'); task.phase = 'active';
   let sequence = 0, launched = 0, cancellations = 0;
@@ -24,7 +24,7 @@ function setup() {
     if (failure) throw Error('access denied');
     return sample();
   }, async close() { return true; } };
-  const executions = new Executions(registry, clock, id => { executionId = id; launched++; return transport; }, 100);
+  const executions = new Executions(registry, clock, id => { executionId = id; launched++; return transport; }, 100, multiple);
   const start = (permission = async () => {}) => executions.start('child', 'call-1', { executable: 'fixture', args: [], cwd: 'lab', artifactPaths: [] }, permission);
   return { clock, registry, task, executions, start, sample, set: (v: Partial<JobSample>) => { override = v; },
     fail: () => { failure = true; }, delay: (fn: () => Promise<JobSample>) => { delayed = fn; },
@@ -75,6 +75,43 @@ test('stopped is monotonic but command exit does not finish child task; unknown 
   x.set({ rootExited: false }); assert.equal((await x.executions.observe(e.executionId, 'parent')).phase, 'stopped');
   assert.equal(x.task.phase, 'active');
 });
+test('more than 128 completed executions retain evidence and duplicate-call protection', async () => {
+  const x = setup(true);
+  x.set({ rootExited: true, exitCode: 0, activeProcesses: 0, ownedProcessesStopped: true });
+  const command = { executable: 'fixture', args: [], cwd: 'lab', artifactPaths: [] };
+  const first = await x.executions.start('child', 'call-0', command, async () => {});
+  for (let i = 1; i < 160; i++) {
+    assert.equal((await x.executions.start('child', `call-${i}`, command, async () => {})).phase, 'stopped');
+  }
+  assert.equal(x.launched(), 160);
+  assert.equal(x.executions.all().length, 160);
+  assert.equal(x.executions.status(first.executionId, 'parent').sample?.exitCode, 0);
+  assert.equal((await x.executions.start('child', 'call-0', command, async () => { assert.fail('duplicate permission'); })).executionId, first.executionId);
+  assert.equal(x.launched(), 160);
+  assert.throws(() => x.executions.status(first.executionId, 'foreign'));
+});
+
+test('permission-denied history does not block a later permitted execution', async () => {
+  const x = setup(true), command = { executable: 'fixture', args: [], cwd: 'lab', artifactPaths: [] };
+  for (let i = 0; i < 160; i++) {
+    const denied = await x.executions.start('child', `denied-${i}`, command, async () => { throw Error('denied'); });
+    assert.equal(denied.phase, 'permission_denied');
+  }
+  assert.equal(x.launched(), 0);
+  assert.equal((await x.executions.start('child', 'allowed', command, async () => {})).phase, 'running');
+  assert.equal(x.launched(), 1);
+});
+
+test('removing the capacity cap does not evict running or uncertain process evidence', async () => {
+  const x = setup(true), command = { executable: 'fixture', args: [], cwd: 'lab', artifactPaths: [] };
+  x.set({ coverageUnknown: true });
+  const first = await x.executions.start('child', 'uncertain', command, async () => {});
+  for (let i = 0; i < 160; i++) await x.executions.start('child', `running-${i}`, command, async () => {});
+  assert.equal(x.executions.status(first.executionId, 'parent').health, 'unknown');
+  assert.equal(x.executions.status(first.executionId, 'parent').safeToRetry, false);
+  assert.equal(x.cancellations(), 0);
+});
+
 test('foreign owner, old attempt and repeated launch are fenced', async () => {
   const x = setup(), e = await x.start(); assert.equal((await x.start()).executionId, e.executionId); assert.equal(x.launched(), 1);
   assert.throws(() => x.executions.status(e.executionId, 'foreign'));

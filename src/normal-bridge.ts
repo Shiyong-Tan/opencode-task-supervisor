@@ -44,7 +44,7 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
       }
       const issuedAt = now();
       const lease: ConnectionLease = { schemaVersion: 1, kind: 'normal-gui', ...options.binding,
-        instanceId, bridgeOrigin: bridge!.endpoint, opencodeVersion: options.openCodeVersion, pluginVersion: '0.1.1',
+        instanceId, bridgeOrigin: bridge!.endpoint, opencodeVersion: options.openCodeVersion, pluginVersion: '0.1.2',
         issuedAt, expiresAt: issuedAt + 60_000 };
       const signed = signConnectionLease(lease, options.launchKey);
       const handle = await open(temporary, 'wx', 0o600);

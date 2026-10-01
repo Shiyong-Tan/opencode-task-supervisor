@@ -42,7 +42,6 @@ export class Executions {
     const duplicate = [...this.entries.values()].find(e => e.view.childSessionId === childSessionId && e.view.toolCallId === toolCallId);
     if (duplicate) return this.copy(duplicate);
     if (!this.multiple && [...this.entries.values()].some(e => e.view.taskId === task.taskId)) throw new Error('One execution per logical task; recovery is not enabled');
-    if (this.entries.size >= 128) throw new Error('Execution capacity reached; no process started');
     const view: Execution = { taskId: task.taskId, attemptId: task.attemptId, parentSessionId: task.parentSessionId,
       childSessionId, executionId: randomUUID(), toolCallId, phase: 'waiting_permission', health: 'waiting_permission',
       createdAt: this.clock.now(), lastActivityAt: this.clock.now(), artifactPaths: [...command.artifactPaths],

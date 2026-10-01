@@ -69,3 +69,14 @@ The Windows release package contains `dist/native/JobHost.exe`, all compiled mod
 Run the **Build release** GitHub Actions workflow manually. It runs tests on Windows and produces the npm tarball plus SHA-256 checksum as a workflow artifact. Create GitHub Release `v0.1.1` and attach those files. Publishing the repository alone does not make the installation URL available.
 
 MIT License. Copyright (c) 2026 Shiyong Tan.
+
+## Release 0.1.2
+
+Removes the cumulative 128-execution launch limit for `supervisor_run`.
+Permission checks, task/attempt ownership and duplicate-call protection remain
+unchanged. Execution history is retained for the plugin instance lifetime;
+memory use grows with retained history. No automatic eviction or process restart.
+
+Use the v0.1.2 release archive. GUI 5.0.13 installs it and migrates the official
+0.1.0/0.1.1 URLs when enabling Supervisor. Finish active tasks before reloading
+an existing OpenCode service; publishing this release does not hot-update it.
