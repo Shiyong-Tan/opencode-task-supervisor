@@ -29,24 +29,20 @@ OpenCode installs the package on startup. Restart OpenCode after changing the de
 - Dispatch it with `supervisor_dispatch({ taskId, agent: "reviewer", prompt, waitMs: 60000 })`.
 - Continue monitoring the same task with `supervisor_wait`; inspect `supervisor_status` and `supervisor_result`.
 - A dispatch checkpoint is not task completion. Continue until a result or a clear blocker, rather than ending the parent turn after dispatch.
-- On Windows, use `supervisor_run` for long commands requiring process tracking; continue `supervisor_process_wait` for that execution ID.
+- On Windows or Linux/WSL, use `supervisor_run` for long commands requiring process tracking; continue `supervisor_process_wait` for that execution ID.
 - On a suspected stall, inspect evidence before deciding whether to cancel or redispatch. Quiet commands and successful cancellation responses are not proof of process termination.
 
 Dispatching and optional notifications can invoke your configured models and incur their normal costs. Installation does not invoke models. Notifications are disabled by default. Tool permissions still apply; the plugin never grants blanket approval.
 
 ## Compatibility and limits
 
-Validated against OpenCode 1.18.29 and 1.18.31; required APIs are checked rather than rejecting every newer version number. Windows is required for GUI-managed service restart and tracked process execution. Other platforms do not have equivalent managed process coverage.
+Validated against OpenCode 1.18.29 and 1.18.31; required APIs are checked rather than rejecting every newer version number.
 
-The 0.1.1 compatibility update separates HTTP task supervision from native
-process tracking. Linux/macOS retain task registration, dispatch, wait, status and
-results; Windows-only process tools are omitted and dispatch explains the missing
-coverage. POSIX GUI bindings preserve case-sensitive workspace identity. GUI
-setup never attempts native Windows service operations on Linux/macOS; an existing
-service may need a manual stop before a fresh GUI launch.
+Windows uses Job Object accounting. Linux (including OpenCode running inside WSL) now exposes `supervisor_run`, `supervisor_process_status`, and `supervisor_process_wait` using a detached helper and `/proc` sampling. When OpenCode runs as a bundled Bun CLI, the detached helper requires `node` (Node.js 18 or newer) on PATH; the OpenCode executable itself cannot run the helper script. No global installation is performed by the plugin. Supply absolute Linux executable and working-directory paths, e.g. `/usr/bin/python3`, not Windows paths. The existing exact-command permission and child-task ownership checks still apply.
 
-This update is tested with simulated Linux/macOS plugin initialization and signed
-POSIX-path bindings on Windows, not Linux/macOS end-to-end execution. Use GUI 5.0.9 or later with plugin 0.1.1. The older v0.1.0 release remains unchanged.
+Linux coverage is the newly created process group, not OS-enforced containment. CPU/I/O, bounded output, root start ticks, exit code, and remaining group members are observed. Root exit does not finish an execution while group members remain alive. Processes that daemonize, call `setsid`, or leave the group are not reliably contained; group completion does not authorize overlapping replacement (`safeToRetry` remains false). Disposal detaches observation without terminating work. Missing `/proc` evidence is unknown, not stopped. macOS process tools remain unavailable.
+
+No GUI protocol change is required. An already-running OpenCode service must be explicitly reloaded after its tasks finish to load a newly installed plugin. Tests include standalone real process fixtures in WSL; no models or existing OpenCode service are used.
 
 
 Native OpenCode `task` calls are not automatically supervised. Tasks must use the Supervisor dispatch tools. The registry is in memory; restarting the service does not resume or recover old tasks. Only registered processes have process-tree evidence.

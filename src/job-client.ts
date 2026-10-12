@@ -23,10 +23,11 @@ export class JobClient implements JobTransport {
   private buffer = '';
   private closed = false;
   private readonly exited: Promise<void>;
-  constructor(helper: string, readonly executionId: string, tempDirectory: string, private readonly timeoutMs = 5000, private readonly observeOnly = false) {
+  constructor(helper: string, readonly executionId: string, tempDirectory: string, private readonly timeoutMs = 5000, private readonly observeOnly = false, runtime?: string) {
     const env: NodeJS.ProcessEnv = observeOnly ? { ...process.env } : { SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR,
       TEMP: tempDirectory, TMP: tempDirectory };
-    this.host = spawn(resolve(helper), observeOnly ? ['--observe'] : [], { env, detached: observeOnly, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    const flags = observeOnly ? ['--observe'] : [];
+    this.host = spawn(runtime ?? resolve(helper), runtime ? [resolve(helper), ...flags] : flags, { env, detached: observeOnly, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.exited = new Promise(done => {
       this.host.once('exit', () => { this.fail('Helper exited; stop coverage requires independent evidence'); done(); });
       this.host.once('error', () => { this.fail('Helper launch failed'); done(); });

@@ -2,7 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import plugin from '../src/plugin.ts';
 import { canonicalWorkspace, signConnectionLease, verifyConnectionLease, type ConnectionLease } from '../src/normal-connection-protocol.ts';
-import { supportsProcessTracking } from '../src/platform-capabilities.ts';
+import { supportsProcessTracking, linuxHelperRuntime } from '../src/platform-capabilities.ts';
+
+test('packaged Bun OpenCode does not launch its CLI as a JavaScript helper', () => {
+  assert.equal(linuxHelperRuntime({ bun: '1.3' }, '/usr/bin/opencode'), 'node');
+  assert.equal(linuxHelperRuntime({}, '/usr/bin/node'), '/usr/bin/node');
+});
 
 test('POSIX signed bindings preserve case and reject alias/traversal paths', () => {
   assert.equal(canonicalWorkspace('/Users/A/Work/'), '/Users/A/Work');
@@ -15,16 +20,16 @@ test('POSIX signed bindings preserve case and reject alias/traversal paths', () 
   assert.throws(() => verifyConnectionLease(signed, { ...lease, workspace: '/users/a/work' }, '44'.repeat(32), 1500));
 });
 
-test('Linux and macOS retain task tools without initializing native process tools', async () => {
+test('macOS retains task tools while Linux exposes process tools', async () => {
   const original = Object.getOwnPropertyDescriptor(process, 'platform')!;
   try {
     for (const platform of ['linux', 'darwin'] as const) {
       Object.defineProperty(process, 'platform', { ...original, value: platform });
-      assert.equal(supportsProcessTracking(platform), false);
-      const runtime = await plugin({ directory: '/nonexistent/no-native-helper', serverUrl: new URL('http://127.0.0.1:42001') } as Parameters<typeof plugin>[0], {});
+      assert.equal(supportsProcessTracking(platform), platform === 'linux');
+      const runtime = await plugin({ directory: process.cwd(), serverUrl: new URL('http://127.0.0.1:42001') } as Parameters<typeof plugin>[0], {});
       try {
         for (const name of ['supervisor_register', 'supervisor_dispatch', 'supervisor_status', 'supervisor_wait', 'supervisor_result']) assert.ok(runtime.tool?.[name]);
-        for (const name of ['supervisor_run', 'supervisor_process_status', 'supervisor_process_wait']) assert.equal(runtime.tool?.[name], undefined);
+        for (const name of ['supervisor_run', 'supervisor_process_status', 'supervisor_process_wait']) assert.equal(Boolean(runtime.tool?.[name]), platform === 'linux');
       } finally { await (runtime as typeof runtime & { dispose(): Promise<void> }).dispose(); }
     }
   } finally { Object.defineProperty(process, 'platform', original); }

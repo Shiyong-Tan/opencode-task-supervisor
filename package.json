@@ -7,6 +7,7 @@
     "build": "tsc && node scripts/build-process-host.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-transform-types --test test/*.test.ts",
+    "test:linux": "npm run build && node scripts/test-linux-process.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {

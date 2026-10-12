@@ -5,19 +5,24 @@ import { fileURLToPath } from 'node:url';
 import { JobClient, type JobTransport } from './job-client.ts';
 import { Executions } from './executions.ts';
 import type { Supervisor } from './supervisor.ts';
+import { supportsProcessTracking, linuxHelperRuntime } from './platform-capabilities.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 export const processGuidance = `\n\nProcess tracking for this supervised task:
 Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Command permission is checked before launch.
 The tool returns an executionId, NOT completion. Continue supervisor_process_wait on that SAME execution until it stops or needs review; read its bounded output and exit code. Never finalize merely because a command was started.
-Simple reads may use ordinary tools; ordinary shell processes are not tracked. If tracking is unavailable, report it. Never relaunch an uncertain execution or silently fall back to another launch tool. Quiet/GPU/waiting processes are not proven dead. No automatic termination or retry.`;
+Simple reads may use ordinary tools; ordinary shell processes are not tracked. If tracking is unavailable, report it. Never relaunch an uncertain execution or silently fall back to another launch tool. Quiet/GPU/waiting processes are not proven dead. No automatic termination or retry.
+On Linux/WSL, tracking covers a newly created process group using /proc identity and counters. Do not daemonize, call setsid, or move descendants out of that group. Group completion is not proof that escaped descendants stopped; safeToRetry remains false. Use Linux executable/cwd paths when OpenCode runs inside WSL.`;
 
 /** Only this module installs normal-mode process evidence; laboratory mode stays separate. */
 export async function processTools(supervisor: Supervisor, directory: string,
   factory?: (id: string) => JobTransport) {
   const workspace = await realpath(directory);
-  const helper = fileURLToPath(new URL('../dist/native/JobHost.exe', import.meta.url));
+  const linux = process.platform === 'linux';
+  const helper = fileURLToPath(new URL(linux ? '../dist/linux-process-host.js' : '../dist/native/JobHost.exe', import.meta.url));
   const executions = new Executions(supervisor.registry, supervisor.clock,
-    factory ?? (id => new JobClient(helper, id, workspace, 5000, true)), 300_000, true);
+    factory ?? (id => new JobClient(helper, id, workspace, 5000, true, linux ? linuxHelperRuntime(process.versions, process.execPath) : undefined)), 300_000, true);
   const invocations = new WeakMap<object, { sessionId: string; callId: string }>();
   const pending = (e: ReturnType<Executions['all']>[number]) =>
     e.phase !== 'stopped' && e.phase !== 'permission_denied' && (e.phase !== 'start_failed' || e.cancelOutcomeUnknown);
@@ -50,20 +55,26 @@ export async function processTools(supervisor: Supervisor, directory: string,
         async execute(args, ctx) {
           const invocation = invocations.get(args); invocations.delete(args);
           if (!invocation || invocation.sessionId !== ctx.sessionID || !invocation.callId) throw new Error('Missing trusted OpenCode tool-call identity');
-          if (!factory && process.platform !== 'win32') throw new Error('Process tracking currently requires Windows');
+          if (!factory && !supportsProcessTracking(process.platform)) throw new Error('Process tracking requires Windows or Linux');
           if (!isAbsolute(args.executable) || !isAbsolute(args.cwd) || [...args.args, args.cwd, args.executable].some(v => v.includes('\0')))
             throw new Error('Absolute executable/cwd and NUL-free arguments required');
           if (JSON.stringify(args).length > 24000) throw new Error('Command exceeds tracking request bound');
           const executable = await realpath(args.executable), cwd = await realpath(args.cwd);
-          if (extname(executable).toLowerCase() !== '.exe') throw new Error('Use an explicit .exe interpreter for scripts');
+          if (process.platform === 'win32' && extname(executable).toLowerCase() !== '.exe') throw new Error('Use an explicit .exe interpreter for scripts');
           if (!factory) await access(helper);
+          if (!factory && linux) {
+            try {
+              const { stdout } = await promisify(execFile)(linuxHelperRuntime(process.versions, process.execPath), ['--version'], { timeout: 2000 });
+              if (Number(stdout.trim().match(/^v(\d+)/)?.[1] ?? 0) < 18) throw new Error('Unsupported runtime');
+            } catch { throw new Error('Linux process tracking requires Node.js 18+ on PATH when OpenCode uses bundled Bun; no process started.'); }
+          }
           const value = await executions.start(ctx.sessionID, invocation.callId, { executable, args: [...args.args], cwd, artifactPaths: [] }, async () => {
             const rel = relative(workspace, cwd);
             if (isAbsolute(rel) || rel === '..' || rel.startsWith('..\\') || rel.startsWith('../'))
               await ctx.ask({ permission: 'external_directory', patterns: [cwd], always: [], metadata: { cwd } });
             // A dedicated exact-command permission avoids pretending to implement the native shell parser.
             await ctx.ask({ permission: 'supervisor_run', patterns: [JSON.stringify({ executable, args: args.args, cwd })], always: [],
-              metadata: { executable, args: args.args, cwd, scope: 'Launch this command and observe its local process tree; no termination or retry' } });
+              metadata: { executable, args: args.args, cwd, scope: 'Launch this command and observe its owned processes; Linux coverage is its process group, not containment. No termination or retry' } });
           }, ctx.abort);
           return JSON.stringify(value);
         },
