@@ -15,7 +15,7 @@ Download the release, or add this declaration to your workspace `opencode.json` 
 ```json
 {
   "plugin": [[
-    "https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/download/v0.1.3/opencode-task-supervisor-0.1.3.tgz",
+    "https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/download/v0.1.4/opencode-task-supervisor-0.1.4.tgz",
     { "allowDispatch": true, "allowNotifications": false, "normalGui": { "enabled": true } }
   ]]
 }
@@ -62,7 +62,7 @@ The Windows release package contains `dist/native/JobHost.exe`, all compiled mod
 
 ## Release
 
-Run the **Build release** GitHub Actions workflow manually. It runs tests on Windows and produces the npm tarball plus SHA-256 checksum as a workflow artifact. Create GitHub Release `v0.1.3` and attach those files. Publishing the repository alone does not make the installation URL available.
+Run the **Build release** GitHub Actions workflow manually. It runs tests on Windows and produces the npm tarball plus SHA-256 checksum as a workflow artifact. Create GitHub Release `v0.1.4` and attach those files. Publishing the repository alone does not make the installation URL available.
 
 MIT License. Copyright (c) 2026 Shiyong Tan.
 
@@ -77,9 +77,9 @@ Use the v0.1.2 release archive. GUI 5.0.13 installs it and migrates the official
 0.1.0/0.1.1 URLs when enabling Supervisor. Finish active tasks before reloading
 an existing OpenCode service; publishing this release does not hot-update it.
 
-## Release 0.1.3
+## Release 0.1.4
 
-Unreleased recovery changes: persistent stall checkpoints cap repeated waits at
+Recovery changes: persistent stall checkpoints cap repeated waits at
 30 seconds and require an explicit parent recovery decision. Routine cancellation
 does not require asking the user. Cancellation can settle only with terminal,
 idle, approval-clear and verified execution-stop evidence; unknown native or escaped

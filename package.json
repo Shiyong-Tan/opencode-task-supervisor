@@ -1,6 +1,6 @@
 {
   "name": "opencode-task-supervisor",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "Task supervision, permission evidence and process tracking for OpenCode",
   "scripts": {
