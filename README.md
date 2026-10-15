@@ -79,6 +79,12 @@ an existing OpenCode service; publishing this release does not hot-update it.
 
 ## Release 0.1.3
 
+Unreleased recovery changes: persistent stall checkpoints cap repeated waits at
+30 seconds and require an explicit parent recovery decision. Routine cancellation
+does not require asking the user. Cancellation can settle only with terminal,
+idle, approval-clear and verified execution-stop evidence; unknown native or escaped
+processes still block retry. No automatic abort or redispatch is performed.
+
 Linux and WSL now support supervisor_run, supervisor_process_status and supervisor_process_wait. Existing command permissions and task ownership are preserved. Bundled Bun OpenCode requires Node.js 18+ on PATH for the detached Linux helper. Linux tracking covers the owned process group, not daemonized descendants that escape it. No automatic cancellation or redispatch is added.
 
 GUI 5.1.0 can discover the latest official release when enabling Supervisor; no GUI version bump is required. Install this release and explicitly reload OpenCode after current tasks finish. Installation does not update an already loaded plugin.

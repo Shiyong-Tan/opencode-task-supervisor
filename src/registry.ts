@@ -39,7 +39,7 @@ export class Registry {
     task.permissions = snapshot.permissions ? structuredClone(snapshot.permissions) : undefined;
     task.permissionObservation = 'current';
     const evidence = [...snapshot.activity, ...(snapshot.processActivity ? [`process:${snapshot.processActivity}`] : [])];
-    if (evidence.some(key => !task.seen.has(key))) task.lastProgressAt = this.clock.now();
+    if (evidence.some(key => !task.seen.has(key))) { task.lastProgressAt = this.clock.now(); task.stallReports = 0; }
     evidence.forEach(key => task.seen.add(key));
     task.process = snapshot.process;
     task.reason = undefined;
@@ -50,6 +50,12 @@ export class Registry {
       return;
     }
     if (task.cancellation !== 'none') {
+      if (task.cancellation === 'acknowledged' && snapshot.terminal && snapshot.status === 'idle' &&
+        !snapshot.pendingTools && !snapshot.permissionIds.length && !snapshot.questionIds?.length && snapshot.executionStopConfirmed === true) {
+        task.phase = 'terminal'; task.health = 'ended'; task.stoppedAfterCancel = true;
+        task.outcome = snapshot.terminal; task.result = snapshot.result ? { ...snapshot.result } : undefined;
+        task.reason = 'Cancellation settled with terminal session and verified execution-stop evidence'; return;
+      }
       task.health = 'cancel_unknown'; task.reason = 'Cancellation does not establish process-tree termination'; return;
     }
     if (snapshot.permissionIds.length) {
@@ -78,5 +84,7 @@ export class Registry {
 
 export function report(task: Task) {
   const { seen: _, result: __, monitorAlert: ___, ...view } = task;
-  return { ...view, recovery: 'Parent must inspect results and verify old execution stopped; no automatic redispatch.' };
+  return { ...view, safeToRetry: task.stoppedAfterCancel === true,
+    recovery: task.stoppedAfterCancel ? 'Verified old execution stopped; register a new task if still needed.' :
+      'Parent must inspect results and verify old execution stopped; no automatic redispatch.' };
 }

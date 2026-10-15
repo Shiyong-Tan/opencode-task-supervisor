@@ -27,8 +27,23 @@ test('aborted tool residual requests are expired; idle alone cannot expire a liv
   assert.deepEqual(aborted.permissionIds, []); assert.equal(aborted.permissions![0]!.state, 'expired');
   const registry = new Registry(new FakeClock()), task = registry.register('ses_parent'); task.phase = 'dispatching'; registry.attach(task, 'ses_child');
   task.cancellation = 'acknowledged'; registry.apply(task, aborted);
-  assert.equal(task.health, 'cancel_unknown'); assert.equal(task.process, 'unknown'); assert.notEqual(task.phase, 'terminal');
+  assert.equal(task.health, 'ended'); assert.equal(task.process, 'unknown'); assert.equal(task.phase, 'terminal');
+  assert.equal(report(task).safeToRetry, true); // Only a read tool existed, and terminal abort evidence is present.
   assert.equal(report(task).permissions![0]!.state, 'expired');
+});
+
+test('native or unknown tools cannot certify cancellation stop even without a call ID', () => {
+  for (const tool of ['bash', 'task', 'custom_launcher', 'supervisor_run']) {
+    const entries = message('error', true);
+    entries[0]!.parts[0]!.tool = tool;
+    delete (entries[0]!.parts[0] as { callID?: string }).callID;
+    const observed = snapshotFrom('ses_child', entries, {}, []);
+    assert.equal(observed.executionStopConfirmed, false);
+    const registry = new Registry(new FakeClock()), task = registry.register('ses_parent');
+    task.phase = 'dispatching'; registry.attach(task, 'ses_child'); task.cancellation = 'acknowledged';
+    registry.apply(task, observed);
+    assert.equal(task.health, 'cancel_unknown'); assert.equal(report(task).safeToRetry, false);
+  }
 });
 
 test('unmatched permission tools remain unknown instead of inventing cancellation or completion', () => {

@@ -10,7 +10,7 @@ export class Supervisor {
   private readonly dispatches = new Map<string, Promise<void>>();
   private readonly observations = new Map<string, Promise<void>>();
   private readonly failures = new Map<string, { attemptId: string; eventId: string; name: string }>();
-  processEvidence?: (id: Identity) => { process: Snapshot['process']; processActivity?: string; pending: boolean; permission: boolean } | undefined;
+  processEvidence?: (id: Identity) => { process: Snapshot['process']; processActivity?: string; pending: boolean; permission: boolean; stopped?: boolean } | undefined;
   constructor(readonly api: Api, readonly clock: Clock, readonly requestMs = 5000, staleMs = 300_000) {
     this.registry = new Registry(clock, staleMs);
   }
@@ -56,6 +56,7 @@ export class Supervisor {
         const snapshot = await bounded(this.clock, timeout, signal => this.api.observe(id.childSessionId!, signal));
         const process = this.processEvidence?.(id);
         if (process) {
+          snapshot.executionStopConfirmed = process.stopped === true && snapshot.untrackedExecutionPossible === false;
           snapshot.process = process.process; snapshot.processActivity = process.processActivity;
           if (process.pending) { snapshot.pendingTools++; snapshot.terminal = undefined; snapshot.result = undefined; }
           if (process.permission) snapshot.permissionIds.push('managed-command-permission');
@@ -90,7 +91,8 @@ export class Supervisor {
       (attention() && task.monitorAlert !== task.health);
     if (!ready()) {
       try {
-        await bounded(this.clock, waitMs, async inner => {
+        const budget = task.health === 'suspected_stall' ? Math.min(waitMs, 30000) : waitMs;
+        await bounded(this.clock, budget, async inner => {
           while (!inner.aborted) {
             await this.observe(taskId, owner);
             inner.throwIfAborted();
@@ -108,11 +110,17 @@ export class Supervisor {
     const event = task.phase === 'terminal' ? 'completed' : task.phase === 'registered' ? 'not_dispatched' :
       attention() ? 'attention' : 'checkpoint';
     if (attention()) task.monitorAlert = task.health;
+    if (task.health === 'suspected_stall') task.stallReports = (task.stallReports ?? 0) + 1;
+    else task.stallReports = 0;
     return { ...this.result(taskId, owner), event,
       lastObservationAgeMs: task.lastCheckedAt === undefined ? null : Math.max(0, this.clock.now() - task.lastCheckedAt),
       lastProgressAgeMs: Math.max(0, this.clock.now() - task.lastProgressAt),
-      safeToRetry: false,
-      next: event === 'completed' ? 'Read and assess this result, then continue the original request. Finalize only when the overall work is complete.' :
+      safeToRetry: task.stoppedAfterCancel === true,
+      recoveryAction: task.stoppedAfterCancel ? 'register_replacement' : task.health === 'suspected_stall'
+        ? (task.stallReports > 1 ? 'decide_recovery_now' : 'inspect_child_now') : 'monitor',
+      next: task.stoppedAfterCancel ? 'Old child has terminal, idle, tool/approval-clear and execution-stop evidence. Register a new task if the original request still requires it; do not redispatch this cancelled task.' :
+        task.health === 'suspected_stall' ? 'Inspect the child messages, tool state, permission/question requests and attributable process evidence now. Do not blindly repeat supervisor_wait. For a persistent stall, decide whether to cancel or justify a bounded wait with concrete progress evidence. Decide cancellation yourself within the authorized task; do not ask the user to choose routine recovery. Never overlap replacements without verified stop evidence.' :
+        event === 'completed' ? 'Read and assess this result, then continue the original request. Finalize only when the overall work is complete.' :
         event === 'not_dispatched' ? 'This task is only registered; dispatch it once before waiting.' :
         'This is a monitoring checkpoint, not completion. Inspect health and activity evidence. Continue with supervisor_wait for the same task (default 60000ms), or decide whether to request supervisor_cancel. Do not finalize merely because a child is pending. Never start overlapping replacement work without verified old-execution stop evidence.' };
   }
@@ -133,9 +141,11 @@ export class Supervisor {
       } catch { task.cancellation = 'unknown'; }
       task.reason = 'Session abort does not prove tools or external processes stopped. Verify old execution and partial changes before replacement.';
     }
+    if (task.cancellation !== 'none') await this.observe(taskId, owner);
     return { ...this.result(taskId, owner), requestAccepted: task.cancellation === 'acknowledged',
-      ownedProcessesStopped: null, safeToRetry: false,
-      next: 'Inspect the existing child, attributable process-stop evidence and partial changes before deciding on a new registration. No cancellation acknowledgment, idle state or silence alone authorizes an overlapping retry.' };
+      ownedProcessesStopped: task.stoppedAfterCancel ? true : null, safeToRetry: task.stoppedAfterCancel === true,
+      next: task.stoppedAfterCancel ? 'Old child stop is verified. Inspect partial changes and register a new task if needed.' :
+        'Inspect the existing child and use supervisor_status to refresh stop evidence. Decide routine cancellation yourself; do not ask the user to certify process termination. Unknown execution coverage remains a blocker; no cancellation acknowledgment, idle state or silence alone authorizes an overlapping retry.' };
   }
   async wait(taskId: string, owner: string, waitMs: number, signal?: AbortSignal) {
     if (!Number.isFinite(waitMs) || waitMs < 0) throw new Error('waitMs must be finite and nonnegative');

@@ -43,6 +43,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
   let result: TaskResult | undefined;
   const messageIds: string[] = [];
   const toolStates = new Map<string, { tool: string; input: string; status: string; aborted: boolean }>();
+  const observedTools: string[] = [];
   for (const entry of array(messagesValue)) {
     const message = object(entry), info = object(message.info), time = object(info.time);
     const parts = array(message.parts).map(object);
@@ -71,6 +72,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
     }
     for (const part of parts) {
       if (part.type === 'tool') {
+        observedTools.push(String(part.tool ?? ''));
         const state = object(part.state);
         if (typeof part.callID === 'string') toolStates.set(`${info.id}:${part.callID}`, {
           tool: String(part.tool ?? ''), input: JSON.stringify(state.input ?? {}).slice(0, 2048),
@@ -100,7 +102,12 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
       state: tool?.aborted || ['completed', 'error'].includes(tool?.status ?? '') ? 'expired' : tool ? 'pending' : 'unknown' };
   });
   const permissionIds = permissions.filter(p => p.state !== 'expired').map(p => p.requestId);
-  return { questionIds, sessionId, status: rawStatus as Snapshot['status'], activity, assistantActivity,
+  const untrackedExecutionPossible = observedTools.some(name =>
+    !['read', 'glob', 'grep', 'list', 'todowrite', 'todoread', 'question', 'supervisor_run', 'supervisor_process_status', 'supervisor_process_wait'].includes(name));
+  // Even completed native commands may leave descendants; never infer safety from tool completion.
+  const registeredExecution = observedTools.includes('supervisor_run');
+  return { untrackedExecutionPossible, executionStopConfirmed: !untrackedExecutionPossible && !registeredExecution,
+    questionIds, sessionId, status: rawStatus as Snapshot['status'], activity, assistantActivity,
     permissionIds, permissions, pendingTools, terminal, process: 'unknown', messageIds, result };
 }
 

@@ -33,7 +33,8 @@ export async function processTools(supervisor: Supervisor, directory: string,
     const active = live.filter(e => e.health !== 'unknown' && e.lastActivityAt > e.createdAt && supervisor.clock.now() - e.lastActivityAt < 5000);
     return { process: active.length ? 'active' : live.some(e => e.health === 'unknown') ? 'unknown' : 'inactive',
       processActivity: active.length ? active.map(e => `${e.executionId}:${e.sample?.cpu100ns}:${e.sample?.readBytes}:${e.sample?.writeBytes}:${e.sample?.stdout.totalBytes}:${e.sample?.stderr.totalBytes}`).join('|') : undefined,
-      pending: live.length > 0, permission: live.some(e => e.phase === 'waiting_permission') };
+      pending: live.length > 0, permission: live.some(e => e.phase === 'waiting_permission'),
+      stopped: all.every(e => e.phase === 'permission_denied' || (e.sample?.ownedProcessesStopped === true && !e.sample.coverageUnknown)) };
   };
   const executionArgs = { executionId: tool.schema.string().min(1) };
   return {

@@ -138,8 +138,11 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
         },
       }),
       supervisor_status: tool({
-        description: 'Read cached owned task status. Unknown process state is not proof of a hang.', args: taskArgs,
-        async execute(args, ctx) { return JSON.stringify(supervisor.status(args.taskId, ctx.sessionID)); },
+        description: 'Refresh and read owned task status, including cancellation stop evidence. Unknown process state is not proof of a hang or of termination.', args: taskArgs,
+        async execute(args, ctx) {
+          await supervisor.observe(args.taskId, ctx.sessionID);
+          return JSON.stringify(supervisor.status(args.taskId, ctx.sessionID));
+        },
       }),
       supervisor_result: tool({
         description: 'Read the final result of your owned child task. On a completion notification, supply its notificationId, then use the result for your requested next step. Does not start a model or retry work.',

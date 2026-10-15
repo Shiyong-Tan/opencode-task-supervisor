@@ -119,3 +119,58 @@ test('terminal failure is returned as evidence and stays terminal on repeated wa
   assert.equal((await owner.waitForDecision(taskId, 'parent')).outcome, 'failed');
   assert.equal((await owner.cancel(taskId, 'parent')).requestAccepted, false); assert.equal(api.aborts, 0);
 });
+
+test('persistent stall caps a 120 second wait and requires a recovery decision', async () => {
+  const { clock, owner, taskId } = await setup(1500);
+  const first = owner.waitForDecision(taskId, 'parent', 10000);
+  await flush(); await clock.advance(2000);
+  assert.equal((await first).recoveryAction, 'inspect_child_now');
+  const repeated = owner.waitForDecision(taskId, 'parent', 120000);
+  await flush(); await clock.advance(30000);
+  const result = await repeated;
+  assert.equal(result.recoveryAction, 'decide_recovery_now');
+  assert.match(result.next, /Do not blindly repeat/);
+  assert.equal(result.safeToRetry, false);
+});
+
+test('cancellation settles only with terminal, idle, approval-clear and execution-stop evidence', async () => {
+  for (const evidence of [undefined, false, true]) {
+    const { api, owner, taskId } = await setup();
+    api.snapshots.set('child-1', snapshot('child-1', { status: 'idle', terminal: 'failed', executionStopConfirmed: evidence,
+      result: { messageId: 'aborted', text: '', outcome: 'failed', error: 'MessageAbortedError' } }));
+    const result = await owner.cancel(taskId, 'parent');
+    assert.equal(result.safeToRetry, evidence === true);
+    assert.equal(result.phase, evidence === true ? 'terminal' : 'active');
+  }
+});
+
+test('idle alone and pending tools or approvals never certify cancellation stop', async () => {
+  for (const patch of [{}, { terminal: 'failed' as const, pendingTools: 1 },
+    { terminal: 'failed' as const, permissionIds: ['ask'] }, { terminal: 'failed' as const, questionIds: ['question'] }]) {
+    const { api, owner, taskId } = await setup();
+    api.snapshots.set('child-1', snapshot('child-1', { status: 'idle', executionStopConfirmed: true, ...patch }));
+    assert.equal((await owner.cancel(taskId, 'parent')).safeToRetry, false);
+  }
+});
+
+test('managed stop evidence cannot override an untracked launch or incomplete coverage', async () => {
+  for (const untracked of [true, false]) for (const stopped of [true, false]) {
+    const { api, owner, taskId } = await setup();
+    api.snapshots.set('child-1', snapshot('child-1', { status: 'idle', terminal: 'failed',
+      untrackedExecutionPossible: untracked, executionStopConfirmed: false }));
+    owner.processEvidence = () => ({ process: 'inactive', pending: false, permission: false, stopped });
+    assert.equal((await owner.cancel(taskId, 'parent')).safeToRetry, !untracked && stopped);
+  }
+});
+
+test('later observation can settle cancellation but a failed abort never certifies it', async () => {
+  const { api, owner, taskId } = await setup();
+  assert.equal((await owner.cancel(taskId, 'parent')).safeToRetry, false);
+  api.snapshots.set('child-1', snapshot('child-1', { status: 'idle', terminal: 'failed', executionStopConfirmed: true }));
+  await owner.observe(taskId, 'parent');
+  assert.equal(owner.status(taskId, 'parent').safeToRetry, true);
+  const other = await setup();
+  other.api.abort = async () => { throw new Error('unknown abort'); };
+  other.api.snapshots.set('child-1', snapshot('child-1', { status: 'idle', terminal: 'failed', executionStopConfirmed: true }));
+  assert.equal((await other.owner.cancel(other.taskId, 'parent')).safeToRetry, false);
+});

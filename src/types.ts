@@ -10,6 +10,9 @@ export interface TaskResult {
   sourceEventId?: string;
 }
 export interface Snapshot {
+  /** Explicit adapter evidence; absence never means process safety. */
+  untrackedExecutionPossible?: boolean;
+  executionStopConfirmed?: boolean;
   permissions?: PermissionEvidence[];
   sessionId: string;
   status: 'busy' | 'retry' | 'idle';
@@ -34,6 +37,8 @@ export interface Task extends Identity {
   delivery: 'inline' | 'notification';
   /** Last health alert returned to the parent; repeated waits do not busy-loop. */
   monitorAlert?: Health;
+  stallReports?: number;
+  stoppedAfterCancel?: boolean;
   phase: Phase;
   health: Health;
   createdAt: number;
