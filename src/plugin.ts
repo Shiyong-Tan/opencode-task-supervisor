@@ -1,4 +1,5 @@
 import { supportsProcessTracking, untrackedProcessGuidance } from './platform-capabilities.ts';
+import { pluginVersion } from './plugin-version.ts';
 import { tool } from '@opencode-ai/plugin';
 import type { Plugin } from '@opencode-ai/plugin';
 import { clock, bounded } from './clock.ts';
@@ -47,7 +48,7 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
   const tracked = !managed && !readonlyLab && supportsProcessTracking(process.platform) ? await processTools(supervisor, directory) : undefined;
   const openCodeVersion = scopeId ? await api.verifyVersion(AbortSignal.timeout(5000)) : undefined;
   view = scopeId && openCodeVersion ? new ViewProjection(supervisor.registry, clock,
-    { pluginVersion: '0.1.4', openCodeVersion, isolationId: scopeId },
+    { pluginVersion, openCodeVersion, isolationId: scopeId },
     () => managed?.executions.all() ?? tracked?.executions.all() ?? [], () => notifications?.all() ?? [], () => new Date(),
     parent => identityOwner!.forParent(parent), normal ? randomBytes(32).toString('hex') : undefined) : undefined;
   const readonlyRuntime = readonlyLab && view ? await startReadonlyLab(readonlyLab, api, view) : undefined;

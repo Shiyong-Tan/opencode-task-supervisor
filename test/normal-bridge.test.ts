@@ -4,6 +4,10 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startNormalBridge } from '../src/normal-bridge.ts';
+import { pluginVersion } from '../src/plugin-version.ts';
+import { ViewProjection } from '../src/view-projection.ts';
+import { Registry } from '../src/registry.ts';
+import { FakeClock } from './helpers.ts';
 import { bridgeBearer, verifyConnectionLease, verifyConnectionProof, type SignedConnectionLease } from '../src/normal-connection-protocol.ts';
 
 test('real normal bridge publishes secret-free renewable lease and live authenticated identity', async () => {
@@ -20,6 +24,9 @@ test('real normal bridge publishes secret-free renewable lease and live authenti
     const text = await readFile(bridge.file, 'utf8');
     assert.ok(!text.includes(launchKey));
     const lease = verifyConnectionLease(JSON.parse(text), binding, launchKey, now);
+    const projection = new ViewProjection(new Registry(new FakeClock()), new FakeClock(),
+      { pluginVersion, openCodeVersion: options.openCodeVersion, isolationId: binding.integrationId });
+    assert.equal(lease.pluginVersion, projection.snapshot('ses_A').pluginVersion);
     const token = bridgeBearer(launchKey, binding, lease.instanceId);
     assert.ok(!text.includes(token));
     const challenge = '44'.repeat(32);

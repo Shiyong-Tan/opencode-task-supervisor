@@ -1,4 +1,5 @@
 import { mkdir, open, readFile, realpath, unlink } from 'node:fs/promises';
+import { pluginVersion } from './plugin-version.ts';
 import { isAbsolute, join, resolve } from 'node:path';
 import type { OpenCodeApi } from './opencode-api.ts';
 import { NotificationIdentities } from './notification-identities.ts';
@@ -57,7 +58,7 @@ export async function startReadonlyLab(lab: Awaited<ReturnType<typeof prepareRea
       return view.snapshot(parent);
     } });
     await descriptor.writeFile(JSON.stringify({ schemaVersion: 1, isolationId: lab.isolationId,
-      instanceId: view.instanceId, workspace: lab.workspace, openCodeVersion, pluginVersion: '0.1.3',
+      instanceId: view.instanceId, workspace: lab.workspace, openCodeVersion, pluginVersion,
       service: { endpoint: service.origin, authorization }, bridge: { endpoint: bridge.endpoint, token: bridge.token },
     }), 'utf8');
     await descriptor.sync();

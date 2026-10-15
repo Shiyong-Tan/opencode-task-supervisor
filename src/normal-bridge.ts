@@ -1,4 +1,5 @@
 import type { OpenCodeVersion } from './opencode-version.ts';
+import { pluginVersion } from './plugin-version.ts';
 import { randomBytes } from 'node:crypto';
 import { open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -44,7 +45,7 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
       }
       const issuedAt = now();
       const lease: ConnectionLease = { schemaVersion: 1, kind: 'normal-gui', ...options.binding,
-        instanceId, bridgeOrigin: bridge!.endpoint, opencodeVersion: options.openCodeVersion, pluginVersion: '0.1.3',
+        instanceId, bridgeOrigin: bridge!.endpoint, opencodeVersion: options.openCodeVersion, pluginVersion,
         issuedAt, expiresAt: issuedAt + 60_000 };
       const signed = signConnectionLease(lease, options.launchKey);
       const handle = await open(temporary, 'wx', 0o600);
