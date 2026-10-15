@@ -23,3 +23,5 @@ Validation uses fake-clock/adapter regression tests and build/typecheck; no mode
 calls, active-service changes, global configuration changes or runtime deployment.
 GUI presentation already supports ended/failed; no GUI version change is needed.
 Next: publish a separately authorized release and validate in an isolated profile.
+
+2026-10-15: Fixed 0.1.4 handshake/snapshot version mismatch with package-owned runtime versions. Real authenticated bridge regression compares lease and projection versions. Release 0.1.5 retains GUI 5.1.0 support.

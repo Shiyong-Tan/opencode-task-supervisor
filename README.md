@@ -15,7 +15,7 @@ Download the release, or add this declaration to your workspace `opencode.json` 
 ```json
 {
   "plugin": [[
-    "https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/download/v0.1.4/opencode-task-supervisor-0.1.4.tgz",
+    "https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/download/v0.1.5/opencode-task-supervisor-0.1.5.tgz",
     { "allowDispatch": true, "allowNotifications": false, "normalGui": { "enabled": true } }
   ]]
 }
@@ -62,7 +62,7 @@ The Windows release package contains `dist/native/JobHost.exe`, all compiled mod
 
 ## Release
 
-Run the **Build release** GitHub Actions workflow manually. It runs tests on Windows and produces the npm tarball plus SHA-256 checksum as a workflow artifact. Create GitHub Release `v0.1.4` and attach those files. Publishing the repository alone does not make the installation URL available.
+Run the **Build release** GitHub Actions workflow manually. It runs tests on Windows and produces the npm tarball plus SHA-256 checksum as a workflow artifact. Create GitHub Release `v0.1.5` and attach those files. Publishing the repository alone does not make the installation URL available.
 
 MIT License. Copyright (c) 2026 Shiyong Tan.
 
@@ -88,3 +88,7 @@ processes still block retry. No automatic abort or redispatch is performed.
 Linux and WSL now support supervisor_run, supervisor_process_status and supervisor_process_wait. Existing command permissions and task ownership are preserved. Bundled Bun OpenCode requires Node.js 18+ on PATH for the detached Linux helper. Linux tracking covers the owned process group, not daemonized descendants that escape it. No automatic cancellation or redispatch is added.
 
 GUI 5.1.0 can discover the latest official release when enabling Supervisor; no GUI version bump is required. Install this release and explicitly reload OpenCode after current tasks finish. Installation does not update an already loaded plugin.
+
+## Release 0.1.5
+
+Fix a 0.1.4 regression where the handshake reported 0.1.3 while snapshots reported 0.1.4. Package metadata now owns all runtime version identities. GUI 5.1.0 remains supported.
