@@ -10,9 +10,11 @@ async function setup() {
   const clock = new FakeClock(), api = new FakeApi(), supervisor = new Supervisor(api, clock);
   const task = supervisor.registry.register('ses_parent'); task.phase = 'dispatching'; supervisor.registry.attach(task, 'ses_child'); task.phase = 'active';
   let launches = 0, denied = false, changes: Partial<JobSample> = {};
+  const commands: unknown[] = [];
   const runtime = await processTools(supervisor, process.cwd(), executionId => {
     let sequence = 0; launches++;
-    return { async call(op) {
+    return { async call(op, command) {
+      if (op === 'start') commands.push(command);
       assert.notEqual(op, 'cancel');
       return { executionId, sequence: ++sequence, observedAt: new Date(0).toISOString(), rootPid: 12, rootCreationFileTime: '123',
         rootExited: false, exitCode: null, activeProcesses: 1, members: [], cpu100ns: '0', readBytes: '0', writeBytes: '0', workingSetBytes: '1048576',
@@ -24,14 +26,26 @@ async function setup() {
   const permissions: unknown[] = [];
   const ctx = (sessionID = 'ses_child') => ({ sessionID, messageID: 'message_1', agent: 'coder', directory: process.cwd(), worktree: process.cwd(),
     abort: new AbortController().signal, metadata() {}, async ask(request: unknown) { permissions.push(request); if (denied) throw Error('denied'); } });
-  const start = async (callId: string, sessionID = 'ses_child') => {
-    const args = { executable: process.execPath, args: ['-e', '/* no actual launch */'], cwd: process.cwd() };
+  const start = async (callId: string, sessionID = 'ses_child', env?: Record<string, string>) => {
+    const args = { executable: process.execPath, args: ['-e', '/* no actual launch */'], cwd: process.cwd(), ...(env ? { env } : {}) };
     runtime.before({ tool: 'supervisor_run', sessionID, callID: callId }, { args });
     return JSON.parse(await runtime.tools.supervisor_run.execute(args, ctx(sessionID)));
   };
-  return { supervisor, clock, api, runtime, task, start, ctx, permissions, launches: () => launches,
+  return { supervisor, clock, api, runtime, task, start, ctx, permissions, commands, launches: () => launches,
     set: (v: Partial<JobSample>) => { changes = v; }, deny: () => { denied = true; } };
 }
+
+test('environment overrides are permission-bound, forwarded once and absent from process status', async () => {
+  const x = await setup();
+  const env = { TMP: 'project-private-temp', TMPDIR: 'project-private-temp' };
+  const execution = await x.start('environment', 'ses_child', env);
+  assert.deepEqual((x.commands[0] as { env: unknown }).env, env);
+  assert.match(JSON.stringify(x.permissions), /project-private-temp/);
+  assert.ok(!JSON.stringify(execution).includes('project-private-temp'));
+  await x.start('environment', 'ses_child', env); assert.equal(x.commands.length, 1);
+  await assert.rejects(x.start('invalid-env', 'ses_child', { 'BAD=NAME': 'x' }), /environment/);
+  assert.equal(x.commands.length, 1);
+});
 
 test('trusted child launch checks exact command permission; foreign/direct calls cannot launch', async () => {
   const x = await setup();

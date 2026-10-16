@@ -60,6 +60,21 @@ class JobHost {
   static Ring stdout=new Ring(), stderr=new Ring();
   static void Check(bool ok){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error());}
   static string Quote(string s){var b=new StringBuilder("\"");int slashes=0;foreach(char c in s){if(c=='\\'){slashes++;continue;}if(c=='"')b.Append('\\',slashes*2+1);else b.Append('\\',slashes);b.Append(c);slashes=0;}b.Append('\\',slashes*2);return b.Append('"').ToString();}
+  static IntPtr ChildEnvironment(Dictionary<string,object> req) {
+    if(!req.ContainsKey("env"))return IntPtr.Zero;
+    var overrides=req["env"] as Dictionary<string,object>;
+    if(overrides==null||overrides.Count>32||json.Serialize(overrides).Length>8192)throw new InvalidOperationException("Invalid environment");
+    var values=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+    foreach(System.Collections.DictionaryEntry item in Environment.GetEnvironmentVariables())values[(string)item.Key]=(string)item.Value;
+    var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    foreach(var item in overrides) {
+      var value=item.Value as string;
+      if(!System.Text.RegularExpressions.Regex.IsMatch(item.Key,"^[A-Za-z_][A-Za-z0-9_]{0,127}$")||value==null||value.IndexOf('\0')>=0||item.Key.StartsWith("OPENCODE_GUI_",StringComparison.OrdinalIgnoreCase)||!seen.Add(item.Key))throw new InvalidOperationException("Invalid environment entry");
+      values[item.Key]=value;
+    }
+    var block=new StringBuilder();foreach(var item in values)block.Append(item.Key).Append('=').Append(item.Value).Append('\0');
+    block.Append('\0');return Marshal.StringToHGlobalUni(block.ToString());
+  }
   static void Start(Dictionary<string,object> req){
     if(job!=IntPtr.Zero)throw new InvalidOperationException("Already started");
     execution=(string)req["executionId"];
@@ -67,7 +82,7 @@ class JobHost {
     var limits=new Extended();limits.Basic.Flags=0x2000; // kill on final handle close, no breakaway
     Check(SetInformationJobObject(job,9,ref limits,(uint)Marshal.SizeOf(typeof(Extended))));
     IntPtr list=IntPtr.Zero, jobs=IntPtr.Zero, handles=IntPtr.Zero, outRead=IntPtr.Zero,outWrite=IntPtr.Zero,errRead=IntPtr.Zero,errWrite=IntPtr.Zero,inRead=IntPtr.Zero,inWrite=IntPtr.Zero;
-    bool initialized=false;
+    bool initialized=false;IntPtr childEnvironment=IntPtr.Zero;
     try {
       var sa=new Security{length=Marshal.SizeOf(typeof(Security)),inherit=1};
       Check(CreatePipe(out outRead,out outWrite,ref sa,0));Check(CreatePipe(out errRead,out errWrite,ref sa,0));Check(CreatePipe(out inRead,out inWrite,ref sa,0));
@@ -81,7 +96,8 @@ class JobHost {
       var si=new StartupEx();si.startup.cb=Marshal.SizeOf(typeof(StartupEx));si.startup.flags=0x100;si.startup.stdin=inRead;si.startup.stdout=outWrite;si.startup.stderr=errWrite;si.attributes=list;
       string exe=Path.GetFullPath((string)req["executable"]);var command=new StringBuilder(Quote(exe));
       foreach(object arg in (System.Collections.IEnumerable)req["args"])command.Append(' ').Append(Quote((string)arg));
-      ProcessInfo pi;Check(CreateProcess(exe,command,IntPtr.Zero,IntPtr.Zero,true,0x80000|0x08000000|4,IntPtr.Zero,(string)req["cwd"],ref si,out pi));
+      childEnvironment=ChildEnvironment(req);
+      ProcessInfo pi;Check(CreateProcess(exe,command,IntPtr.Zero,IntPtr.Zero,true,0x80000|0x08000000|4|0x400,childEnvironment,(string)req["cwd"],ref si,out pi));
       root=pi.process;rootPid=pi.pid;
       try {bool member;long exited,kernel,user;Check(IsProcessInJob(root,job,out member));if(!member)throw new InvalidOperationException("Root outside job");Check(GetProcessTimes(root,out rootCreated,out exited,out kernel,out user));if(observeOnly){limits.Basic.Flags=0;Check(SetInformationJobObject(job,9,ref limits,(uint)Marshal.SizeOf(typeof(Extended))));}Check(ResumeThread(pi.thread)!=uint.MaxValue);launched=true;}
       catch {limits.Basic.Flags=0x2000;SetInformationJobObject(job,9,ref limits,(uint)Marshal.SizeOf(typeof(Extended)));throw;}
@@ -89,6 +105,7 @@ class JobHost {
       var a=outRead;var b=errRead;new Thread(()=>stdout.Drain(a)){IsBackground=true}.Start();new Thread(()=>stderr.Drain(b)){IsBackground=true}.Start();outRead=errRead=IntPtr.Zero;
     } finally {
       foreach(var h in new[]{outRead,outWrite,errRead,errWrite,inRead,inWrite})if(h!=IntPtr.Zero)CloseHandle(h);
+      if(childEnvironment!=IntPtr.Zero)Marshal.FreeHGlobal(childEnvironment);
       if(initialized)DeleteProcThreadAttributeList(list);if(list!=IntPtr.Zero)Marshal.FreeHGlobal(list);if(jobs!=IntPtr.Zero)Marshal.FreeHGlobal(jobs);if(handles!=IntPtr.Zero)Marshal.FreeHGlobal(handles);
     }
   }

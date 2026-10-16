@@ -123,3 +123,7 @@ GUI 5.1.0 can discover the latest official release when enabling Supervisor; no 
 ## Release 0.1.5
 
 Fix a 0.1.4 regression where the handshake reported 0.1.3 while snapshots reported 0.1.4. Package metadata now owns all runtime version identities. GUI 5.1.0 remains supported.
+
+## Per-process environment
+
+Supervisor 0.1.11 adds optional `env` to `supervisor_run`, for example `"env": {"TMP": "D:\\project\\.tmp", "TEMP": "D:\\project\\.tmp", "TMPDIR": "D:\\project\\.tmp"}`. Create the directory first. Values override only the launched child and its descendants; the service environment and global configuration are unchanged. Windows and Linux/WSL use the same tool interface. Exact command permission includes overrides. Up to 32 string entries / 8 KiB are accepted; private GUI bootstrap keys are rejected. These variables guide cooperating programs and do not guarantee filesystem containment or control every conda cache.

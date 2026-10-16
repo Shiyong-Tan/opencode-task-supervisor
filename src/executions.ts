@@ -32,7 +32,7 @@ export class Executions {
   private copy(entry: Entry): Execution { return structuredClone(entry.view); }
   all(): Execution[] { return [...this.entries.values()].map(e => this.copy(e)); }
   status(id: string, session: string): Execution { return this.copy(this.owned(id, session)); }
-  async start(childSessionId: string, toolCallId: string, command: { executable: string; args: string[]; cwd: string; artifactPaths: string[] },
+  async start(childSessionId: string, toolCallId: string, command: { executable: string; args: string[]; cwd: string; env?: Record<string, string>; artifactPaths: string[] },
     permission: () => Promise<void>, abort?: AbortSignal): Promise<Execution> {
     if (this.disposed || !toolCallId) throw new Error('Execution owner unavailable');
     const tasks = this.registry.all().filter(t => t.childSessionId === childSessionId && t.phase !== 'terminal');

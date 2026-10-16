@@ -3,6 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { constants } from 'node:os';
 import type { JobSample } from './job-client.ts';
+import { processEnvironment } from './process-environment.ts';
 
 // Linux evidence covers the newly created process group, not a Windows-style containment boundary.
 const hz = Number(execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim());
@@ -67,7 +68,7 @@ async function sample(): Promise<JobSample> {
 async function start(args: Record<string, unknown>) {
   if (child || typeof args.executable !== 'string' || typeof args.cwd !== 'string' || !Array.isArray(args.args) || !args.args.every(arg => typeof arg === 'string')) throw new Error('Invalid or duplicate launch');
   executionId = String(args.executionId);
-  child = spawn(args.executable, args.args as string[], { cwd: args.cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } });
+  child = spawn(args.executable, args.args as string[], { cwd: args.cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...processEnvironment(args.env) } });
   child.stdout.on('data', chunk => append(stdout, chunk)); child.stderr.on('data', chunk => append(stderr, chunk));
   child.stdout.on('end', () => { stdoutEnded = true; }); child.stderr.on('end', () => { stderrEnded = true; });
   child.stdin.on('error', () => {}); child.stdin.end();

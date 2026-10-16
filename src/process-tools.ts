@@ -8,9 +8,10 @@ import type { Supervisor } from './supervisor.ts';
 import { supportsProcessTracking, linuxHelperRuntime } from './platform-capabilities.ts';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { processEnvironment } from './process-environment.ts';
 
 export const processGuidance = `\n\nProcess tracking for this supervised task:
-Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Command permission is checked before launch.
+Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Optional env supplies per-process environment overrides (for example TMP, TEMP and TMPDIR set to an existing project-local directory). Overrides are inherited by descendants; they do not enforce filesystem containment. Command and environment permission is checked before launch.
 The tool returns an executionId, NOT completion. Continue supervisor_process_wait on that SAME execution until it stops or needs review; read its bounded output and exit code. Never finalize merely because a command was started.
 Simple reads may use ordinary tools; ordinary shell processes are not tracked. If tracking is unavailable, report it. Never relaunch an uncertain execution or silently fall back to another launch tool. Quiet/GPU/waiting processes are not proven dead. No automatic termination or retry.
 On Linux/WSL, tracking covers a newly created process group using /proc identity and counters. Do not daemonize, call setsid, or move descendants out of that group. Group completion is not proof that escaped descendants stopped; safeToRetry remains false. Use Linux executable/cwd paths when OpenCode runs inside WSL.`;
@@ -52,7 +53,7 @@ export async function processTools(supervisor: Supervisor, directory: string,
       supervisor_run: tool({
         description: 'Launch and register a process for your current supervised child task. Requires explicit command permission. Returns promptly, not completion; continue supervisor_process_wait with the returned executionId. Does not cancel, retry or attach to existing processes.',
         args: { executable: tool.schema.string().min(1).max(4096), args: tool.schema.array(tool.schema.string().max(16000)).max(128),
-          cwd: tool.schema.string().min(1).max(4096) },
+          cwd: tool.schema.string().min(1).max(4096), env: tool.schema.record(tool.schema.string(), tool.schema.string()).optional() },
         async execute(args, ctx) {
           const invocation = invocations.get(args); invocations.delete(args);
           if (!invocation || invocation.sessionId !== ctx.sessionID || !invocation.callId) throw new Error('Missing trusted OpenCode tool-call identity');
@@ -60,6 +61,7 @@ export async function processTools(supervisor: Supervisor, directory: string,
           if (!isAbsolute(args.executable) || !isAbsolute(args.cwd) || [...args.args, args.cwd, args.executable].some(v => v.includes('\0')))
             throw new Error('Absolute executable/cwd and NUL-free arguments required');
           if (JSON.stringify(args).length > 24000) throw new Error('Command exceeds tracking request bound');
+          const env = processEnvironment(args.env);
           const executable = await realpath(args.executable), cwd = await realpath(args.cwd);
           if (process.platform === 'win32' && extname(executable).toLowerCase() !== '.exe') throw new Error('Use an explicit .exe interpreter for scripts');
           if (!factory) await access(helper);
@@ -69,13 +71,13 @@ export async function processTools(supervisor: Supervisor, directory: string,
               if (Number(stdout.trim().match(/^v(\d+)/)?.[1] ?? 0) < 18) throw new Error('Unsupported runtime');
             } catch { throw new Error('Linux process tracking requires Node.js 18+ on PATH when OpenCode uses bundled Bun; no process started.'); }
           }
-          const value = await executions.start(ctx.sessionID, invocation.callId, { executable, args: [...args.args], cwd, artifactPaths: [] }, async () => {
+          const value = await executions.start(ctx.sessionID, invocation.callId, { executable, args: [...args.args], cwd, ...(env ? { env } : {}), artifactPaths: [] }, async () => {
             const rel = relative(workspace, cwd);
             if (isAbsolute(rel) || rel === '..' || rel.startsWith('..\\') || rel.startsWith('../'))
               await ctx.ask({ permission: 'external_directory', patterns: [cwd], always: [], metadata: { cwd } });
             // A dedicated exact-command permission avoids pretending to implement the native shell parser.
-            await ctx.ask({ permission: 'supervisor_run', patterns: [JSON.stringify({ executable, args: args.args, cwd })], always: [],
-              metadata: { executable, args: args.args, cwd, scope: 'Launch this command and observe its owned processes; Linux coverage is its process group, not containment. No termination or retry' } });
+            await ctx.ask({ permission: 'supervisor_run', patterns: [JSON.stringify({ executable, args: args.args, cwd, ...(env ? { env } : {}) })], always: [],
+              metadata: { executable, args: args.args, cwd, environmentKeys: Object.keys(env ?? {}), scope: 'Launch this command and observe its owned processes; Linux coverage is its process group, not containment. No termination or retry' } });
           }, ctx.abort);
           return JSON.stringify(value);
         },
