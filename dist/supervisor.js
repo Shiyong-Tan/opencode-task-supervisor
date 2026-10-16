@@ -1,0 +1,216 @@
+import { bounded } from "./clock.js";
+import { Registry, report } from "./registry.js";
+import { taskTitle } from "./task-title.js";
+export class Supervisor {
+    api;
+    clock;
+    requestMs;
+    registry;
+    dispatches = new Map();
+    observations = new Map();
+    failures = new Map();
+    processEvidence;
+    constructor(api, clock, requestMs = 5000, staleMs = 300_000) {
+        this.api = api;
+        this.clock = clock;
+        this.requestMs = requestMs;
+        this.registry = new Registry(clock, staleMs);
+    }
+    register(parent, taskId) { return report(this.registry.register(parent, taskId)); }
+    dispatch(taskId, owner, prompt, selection, delivery = 'notification', description) {
+        const task = this.registry.get(taskId, owner);
+        if (task.cancellation !== 'none')
+            throw new Error('Cancelled or uncertain task cannot be dispatched again');
+        if (task.phase !== 'registered' && task.agent !== selection?.agent)
+            throw new Error('Task agent cannot change after dispatch');
+        if (task.phase !== 'registered')
+            return report(task); // Idempotent: no retry after ambiguous submission.
+        const selected = selection ? structuredClone(selection) : undefined;
+        task.agent = selected?.agent;
+        task.title = taskTitle(description, selected?.agent);
+        task.delivery = delivery;
+        task.phase = 'dispatching';
+        task.dispatch = 'pending';
+        const pending = this.start(task, prompt, selected).finally(() => this.dispatches.delete(task.taskId));
+        this.dispatches.set(taskId, pending);
+        return report(task); // Return control without waiting for model execution or network.
+    }
+    async start(task, prompt, selection) {
+        try {
+            const child = await bounded(this.clock, this.requestMs, signal => this.api.create(task.parentSessionId, task.title, signal, selection));
+            this.registry.attach(task, child);
+            if (task.cancellation !== 'none')
+                return;
+            await bounded(this.clock, this.requestMs, signal => this.api.dispatch(child, prompt, signal, selection));
+            task.dispatch = 'accepted';
+            if (task.phase !== 'terminal')
+                task.phase = 'active';
+        }
+        catch (error) {
+            task.dispatch = 'unknown';
+            if (task.phase === 'terminal')
+                return;
+            task.health = 'unreachable';
+            task.reason = `Dispatch uncertain; do not retry automatically: ${String(error)}`;
+        }
+    }
+    async observe(taskId, owner, timeout = this.requestMs) {
+        const task = this.registry.get(taskId, owner);
+        if (!task.childSessionId || task.phase === 'terminal')
+            return;
+        const existing = this.observations.get(taskId);
+        if (existing)
+            return existing;
+        const id = { taskId, attemptId: task.attemptId, parentSessionId: owner, childSessionId: task.childSessionId };
+        const pending = (async () => {
+            try {
+                const snapshot = await bounded(this.clock, timeout, signal => this.api.observe(id.childSessionId, signal));
+                const process = this.processEvidence?.(id);
+                if (process) {
+                    snapshot.executionStopConfirmed = process.stopped === true && snapshot.untrackedExecutionPossible === false;
+                    snapshot.process = process.process;
+                    snapshot.processActivity = process.processActivity;
+                    if (process.pending) {
+                        snapshot.pendingTools++;
+                        snapshot.terminal = undefined;
+                        snapshot.result = undefined;
+                    }
+                    if (process.permission)
+                        snapshot.permissionIds.push('managed-command-permission');
+                }
+                const failure = this.failures.get(id.childSessionId);
+                if (!snapshot.terminal && failure?.attemptId === id.attemptId && snapshot.status === 'idle' && !snapshot.pendingTools && !snapshot.permissionIds.length) {
+                    snapshot.terminal = 'failed';
+                    snapshot.result = { messageId: '', text: '', outcome: 'failed', error: failure.name, sourceEventId: failure.eventId };
+                }
+                this.registry.apply(id, snapshot);
+            }
+            catch (error) {
+                this.registry.queryFailed(id, String(error));
+            }
+        })().finally(() => this.observations.delete(taskId));
+        this.observations.set(taskId, pending);
+        return pending;
+    }
+    status(taskId, owner) { return report(this.registry.get(taskId, owner)); }
+    recordSessionError(childSessionId, eventId, name) {
+        const task = this.registry.all().find(t => t.childSessionId === childSessionId);
+        if (!task || task.phase === 'terminal' || task.cancellation !== 'none')
+            return;
+        this.failures.set(childSessionId, { attemptId: task.attemptId, eventId, name });
+    }
+    result(taskId, owner) {
+        const task = this.registry.get(taskId, owner);
+        return { ...report(task), result: task.result ? { ...task.result } : null };
+    }
+    /** Keeps the tool open, not the model generating. HTTP polling consumes no model calls. */
+    async waitForDecision(taskId, owner, waitMs = 60_000, signal) {
+        if (!Number.isFinite(waitMs) || waitMs < 1000 || waitMs > 120_000)
+            throw new Error('waitMs must be between 1000 and 120000');
+        const task = this.registry.get(taskId, owner);
+        const attention = () => task.health !== 'running' && task.health !== 'ended';
+        const ready = () => task.phase === 'terminal' || task.phase === 'registered' ||
+            (attention() && task.monitorAlert !== task.health);
+        if (!ready()) {
+            try {
+                const budget = task.health === 'suspected_stall' ? Math.min(waitMs, 30000) : waitMs;
+                await bounded(this.clock, budget, async (inner) => {
+                    while (!inner.aborted) {
+                        await this.observe(taskId, owner);
+                        inner.throwIfAborted();
+                        if (!attention())
+                            task.monitorAlert = undefined;
+                        if (ready())
+                            return;
+                        await this.clock.sleep(1000, inner);
+                    }
+                }, signal);
+            }
+            catch (error) {
+                if (signal?.aborted)
+                    throw error;
+                if (!(error instanceof Error) || error.message !== 'deadline_exceeded')
+                    throw error;
+            }
+        }
+        signal?.throwIfAborted();
+        const event = task.phase === 'terminal' ? 'completed' : task.phase === 'registered' ? 'not_dispatched' :
+            attention() ? 'attention' : 'checkpoint';
+        if (attention())
+            task.monitorAlert = task.health;
+        if (task.health === 'suspected_stall')
+            task.stallReports = (task.stallReports ?? 0) + 1;
+        else
+            task.stallReports = 0;
+        return { ...this.result(taskId, owner), event,
+            lastObservationAgeMs: task.lastCheckedAt === undefined ? null : Math.max(0, this.clock.now() - task.lastCheckedAt),
+            lastProgressAgeMs: Math.max(0, this.clock.now() - task.lastProgressAt),
+            safeToRetry: task.stoppedAfterCancel === true,
+            recoveryAction: task.stoppedAfterCancel ? 'register_replacement' : task.health === 'suspected_stall'
+                ? (task.stallReports > 1 ? 'decide_recovery_now' : 'inspect_child_now') : 'monitor',
+            next: task.stoppedAfterCancel ? 'Old child has terminal, idle, tool/approval-clear and execution-stop evidence. Register a new task if the original request still requires it; do not redispatch this cancelled task.' :
+                task.health === 'suspected_stall' ? 'Inspect the child messages, tool state, permission/question requests and attributable process evidence now. Do not blindly repeat supervisor_wait. For a persistent stall, decide whether to cancel or justify a bounded wait with concrete progress evidence. Decide cancellation yourself within the authorized task; do not ask the user to choose routine recovery. Never overlap replacements without verified stop evidence.' :
+                    event === 'completed' ? 'Read and assess this result, then continue the original request. Finalize only when the overall work is complete.' :
+                        event === 'not_dispatched' ? 'This task is only registered; dispatch it once before waiting.' :
+                            'This is a monitoring checkpoint, not completion. Inspect health and activity evidence. Continue with supervisor_wait for the same task (default 60000ms), or decide whether to request supervisor_cancel. Do not finalize merely because a child is pending. Never start overlapping replacement work without verified old-execution stop evidence.' };
+    }
+    /** Explicit, parent-owned session abort. Acknowledgment is never a process-tree certificate. */
+    async cancel(taskId, owner, signal) {
+        signal?.throwIfAborted();
+        const task = this.registry.get(taskId, owner);
+        if (task.cancellation === 'none' && task.phase !== 'terminal') {
+            task.cancellation = 'requested';
+            task.health = 'cancel_unknown';
+            try {
+                // Fence a not-yet-submitted prompt before aborting the known child.
+                const pending = this.dispatches.get(taskId);
+                if (pending)
+                    await bounded(this.clock, this.requestMs * 2 + 1000, async () => { await pending; }, signal);
+                if (!task.childSessionId)
+                    throw new Error('No known child to abort');
+                await bounded(this.clock, this.requestMs, inner => this.api.abort(task.childSessionId, inner), signal);
+                task.cancellation = 'acknowledged';
+            }
+            catch {
+                task.cancellation = 'unknown';
+            }
+            task.reason = 'Session abort does not prove tools or external processes stopped. Verify old execution and partial changes before replacement.';
+        }
+        if (task.cancellation !== 'none')
+            await this.observe(taskId, owner);
+        return { ...this.result(taskId, owner), requestAccepted: task.cancellation === 'acknowledged',
+            ownedProcessesStopped: task.stoppedAfterCancel ? true : null, safeToRetry: task.stoppedAfterCancel === true,
+            next: task.stoppedAfterCancel ? 'Old child stop is verified. Inspect partial changes and register a new task if needed.' :
+                'Inspect the existing child and use supervisor_status to refresh stop evidence. Decide routine cancellation yourself; do not ask the user to certify process termination. Unknown execution coverage remains a blocker; no cancellation acknowledgment, idle state or silence alone authorizes an overlapping retry.' };
+    }
+    async wait(taskId, owner, waitMs, signal) {
+        if (!Number.isFinite(waitMs) || waitMs < 0)
+            throw new Error('waitMs must be finite and nonnegative');
+        const budget = Math.min(waitMs, 2000);
+        if (budget === 0)
+            return this.status(taskId, owner);
+        try {
+            await bounded(this.clock, budget, async (inner) => {
+                while (!inner.aborted) {
+                    await this.observe(taskId, owner, Math.min(this.requestMs, budget));
+                    const task = this.registry.get(taskId, owner);
+                    if (task.phase === 'terminal' || ['waiting_permission', 'unreachable', 'cancel_unknown'].includes(task.health))
+                        return;
+                    await this.clock.sleep(Math.min(100, budget), inner);
+                }
+            }, signal);
+        }
+        catch (error) {
+            if (signal?.aborted)
+                throw error;
+        }
+        return this.status(taskId, owner);
+    }
+    async tick() {
+        // Bounded concurrency avoids a failed child starving all others.
+        const tasks = this.registry.all();
+        for (let offset = 0; offset < tasks.length; offset += 4)
+            await Promise.all(tasks.slice(offset, offset + 4).map(task => this.observe(task.taskId, task.parentSessionId)));
+    }
+    async settledDispatches() { await Promise.all(this.dispatches.values()); }
+}

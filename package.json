@@ -1,0 +1,27 @@
+{
+  "name": "opencode-task-supervisor",
+  "version": "0.1.7",
+  "type": "module",
+  "description": "Task supervision, permission evidence and process tracking for OpenCode",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.18.29",
+    "@opencode-ai/sdk": "1.18.29"
+  },
+  "main": "./dist/plugin.js",
+  "types": "./dist/plugin.d.ts",
+  "exports": {
+    ".": "./dist/plugin.js",
+    "./server": "./dist/plugin-v2.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shiyong-Tan/opencode-task-supervisor.git"
+  },
+  "files": [
+    "dist",
+    "server.js",
+    "README.md",
+    "LICENSE"
+  ]
+}
