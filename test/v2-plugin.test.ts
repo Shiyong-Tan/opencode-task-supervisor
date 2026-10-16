@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import plugin from '../src/plugin-v2.ts';
+import legacyPlugin from '../src/plugin.ts';
 import { canonicalWorkspace, serviceAuthenticationProof } from '../src/normal-connection-protocol.ts';
+
+test('package server subpath supports the modern 1.x server loader and native 2.x setup loader', () => {
+  assert.equal(plugin.server, legacyPlugin);
+  assert.equal(typeof plugin.setup, 'function');
+});
 
 test('V2 entrypoint registers native tools and keeps dispatch disabled without explicit authorization', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'supervisor-native-entry-')));

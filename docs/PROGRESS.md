@@ -89,3 +89,5 @@ is exhausted at 50/50; full VS Code window manual acceptance and native macOS
 are not claimed as completed.
 
 2026-10-16 correction: the 0.1.6 resolver check above verified metadata, not remote installation. Actual fresh native installation rejects raw tgz URLs. Version 0.1.6 was demoted to prerelease. Version 0.1.7 adds a runtime-only compiled Git distribution tag for V2; V1 retains the archive. A fresh 2.0.24 profile successfully installed the equivalent runtime-only Git payload. Source index and existing user notification changes remain untouched. No additional model calls.
+
+0.1.7 remote V2 Git install passed, but remote V1.18.31 package installation selected the server export too, then rejected its missing legacy server() function. Version 0.1.7 was demoted to prerelease. Version 0.1.8 exposes server() and setup() on that shared subpath, retaining the original root function for older loaders. Added regression and require both actual remote installation checks before stable promotion.

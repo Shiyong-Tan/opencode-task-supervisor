@@ -10,6 +10,7 @@ import { pluginVersion } from './plugin-version.ts';
 import { ViewProjection } from './view-projection.ts';
 import { prepareNormalPlugin, startNormalPlugin } from './normal-plugin.ts';
 import { parseOpenCodeVersion } from './opencode-version.ts';
+import legacyPlugin from './plugin.ts';
 
 interface Registration { dispose(): Promise<void> }
 interface NativeToolContext { sessionID: string; messageID: string; id: string; agent: string; signal: AbortSignal; progress(value: Record<string, unknown>): Promise<void> }
@@ -31,6 +32,8 @@ const waitMs = (value: Record<string, unknown>) => { const ms = value.waitMs ?? 
  * no V1 loader, SDK client, event hook or permission context is used here. */
 export default {
   id: 'opencode-task-supervisor',
+  // Recent 1.x package loaders also select ./server, but call server(), not setup().
+  server: legacyPlugin,
   async setup(context: NativeContext): Promise<() => Promise<void>> {
     const directory = await realpath(context.location.directory), options = context.options;
     if (options.readonlyLab || options.managedLab) throw new Error('V2 normal plugin cannot enable laboratory mode');

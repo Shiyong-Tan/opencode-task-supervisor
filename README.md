@@ -1,6 +1,6 @@
 # OpenCode Task Supervisor
 
-## OpenCode 1 and 2 support (0.1.7)
+## OpenCode 1 and 2 support (0.1.8)
 
 The package keeps the OpenCode 1 default export and adds the native
 OpenCode 2 `server` export (plus server.js for local directory loading). Version
@@ -21,7 +21,7 @@ distribution using `node scripts/native-distribution.mjs <archive> --push`, then
 create the protocol manifest with `node scripts/release-protocol-manifest.mjs
 <archive> <nativeCommit>`. Attach the archive and manifest to the release.
 OpenCode 1 uses the release archive; OpenCode 2 uses
-`git+https://github.com/Shiyong-Tan/opencode-task-supervisor.git#package-v0.1.7`.
+`git+https://github.com/Shiyong-Tan/opencode-task-supervisor.git#package-v0.1.8`.
 The compiled Git payload excludes development scripts and development dependencies.
 Release 0.1.6 is a prerelease: its archive works locally but its direct download
 URL is not installable by the native OpenCode 2 package manager.
