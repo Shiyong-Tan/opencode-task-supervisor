@@ -1,8 +1,8 @@
 # OpenCode Task Supervisor
 
-## Unreleased native OpenCode 2 support
+## OpenCode 1 and 2 support (0.1.6)
 
-The development package keeps the OpenCode 1 default export and adds the native
+The package keeps the OpenCode 1 default export and adds the native
 OpenCode 2 `server` export (plus server.js for local directory loading). Version
 labels are not compatibility allowlists. OpenCode 2 uses `plugins` entries with
 `package` and `options`; OpenCode 1 retains its `plugin` tuples. Both share the
@@ -18,16 +18,19 @@ observation is unknown, not proof of progress or stall.
 
 Build with `npm run build` and package with `npm pack`. Generate the protocol release
 advertisement with `node scripts/release-protocol-manifest.mjs <archive>` and attach
-both to a separately authorized release. The existing public 0.1.5 archive does not
-contain these changes. The local development version has deliberately not changed.
+both to the release. The existing public 0.1.5 archive does not
+contain these changes; native OpenCode 2 requires the dual-entry 0.1.6 package.
 Real isolated 2.0.24 loading, authenticated lease and snapshot checks use zero
-model calls; live model work and native macOS/Linux 2.0 validation remain manual.
+model calls. Windows real-model acceptance additionally verifies named dispatch,
+tracked process launch/wait and parent completion with openai/gpt-6-luna. Linux/WSL
+2.0.24 session/plugin loading and process/service ownership checks pass without
+model calls. Native macOS and full VS Code window acceptance are not certified.
 
 Task supervision and process tracking for OpenCode, with an optional OpenCode GUI status panel.
 
 ## Install with OpenCode GUI
 
-Install the companion GUI, open a trusted workspace, and turn on **Supervisor** beside the model variant selector. The GUI adds the pinned release to the workspace OpenCode configuration. On Windows it can restart its own OpenCode service. On Linux/macOS it uses the ordinary GUI start/reuse path; an already-running service must be stopped manually when tasks are finished before the GUI can launch it with the new plugin binding. Running or permission-blocked tasks require confirmation before restart. External services are never taken over.
+Install a compatible companion GUI, open a trusted workspace, and turn on **Supervisor** beside the model variant selector. The GUI resolves the official stable release and writes its verified package URL to workspace configuration. Current GUI builds manage their own idle Windows/Linux/WSL service; active tasks and permission waits lock service changes. External services are never taken over. Native OpenCode 2 additionally requires the GUI's native protocol adapter; a plugin update alone cannot add that adapter to an older GUI.
 
 The configuration editor preserves other plugins and permission rules. Turning the switch off hides the GUI observer; it does not stop tasks or uninstall the backend plugin.
 

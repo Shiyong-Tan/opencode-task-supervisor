@@ -18,11 +18,16 @@ jobs:
       - shell: pwsh
         run: |
           $asset = Get-Item opencode-task-supervisor-*.tgz
-          $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
-          "$hash  $($asset.Name)" | Set-Content -Encoding ascii SHA256SUMS
+          node scripts/release-protocol-manifest.mjs $asset.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Item opencode-task-supervisor-*.tgz, opencode-task-supervisor-*.protocols.json | ForEach-Object {
+            $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding ascii SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: opencode-task-supervisor-release
           path: |
             opencode-task-supervisor-*.tgz
+            opencode-task-supervisor-*.protocols.json
             SHA256SUMS

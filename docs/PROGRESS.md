@@ -1,5 +1,22 @@
 # Recovery policy update
 
+2026-10-16: Prepare 0.1.6 dual-protocol release. Windows real 2.0.24 acceptance
+with openai/gpt-6-luna verifies one registered reviewer child, supervisor_dispatch,
+supervisor_run launching a harmless owned Node command, supervisor_process_wait,
+child result and parent final. Linux/WSL real 2.0.24 session/event/form contract,
+native plugin lease/snapshot, process ownership and GUI service ownership pass
+without model calls. The GUI's Windows acceptance found/fixed separate native
+finality and question feedback/presentation issues; those fixes belong to the GUI
+repository. Its production client verifies Steer, concurrent sessions, parallel
+tool transcript identities, compaction, interruption without idle, and original
+child question/read permission routing. The cumulative authorized 50-request
+ledger includes failed network attempts and reconciled fixture requests; no
+additional model requests are authorized. Full VS Code window manual acceptance
+and native macOS remain outside the verified claims. Release automation now emits
+the matching protocol manifest and checksums, so future plugin releases do not
+require a GUI version bump just to change an archive URL. Preserve the preexisting
+notification-identity-protocol.ts working-tree change.
+
 2026-10-15: A real parent received suspected_stall at five minutes but repeatedly
 requested 120-second waits until sixteen minutes of inactivity. Repeated health
 alerts were deduplicated into full-length waits and shared healthy checkpoint
