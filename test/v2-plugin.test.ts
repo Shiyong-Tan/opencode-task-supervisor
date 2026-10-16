@@ -35,6 +35,14 @@ test('V2 entrypoint registers native tools and keeps dispatch disabled without e
     const registered = JSON.parse((await tools.find(tool => tool.name === 'supervisor_register')!.execute({}, ctx)).content);
     assert.equal(registered.phase, 'registered');
     await assert.rejects(tools.find(tool => tool.name === 'supervisor_dispatch')!.execute({ taskId: registered.taskId, prompt: 'Fixture', agent: 'reviewer' }, ctx), /Dispatch disabled/);
+    await cleanup(); cleanup = undefined;
+    const context = { app: { version: '2.0.24' }, location: { directory: root }, options: { allowDispatch: false, normalGui: { enabled: true } },
+      tool: { transform: async () => ({ dispose }) } };
+    cleanup = await plugin.setup(context);
+    assert.equal(process.env.OPENCODE_GUI_SUPERVISOR_BINDING, undefined);
+    const foreign = await realpath(await mkdtemp(join(tmpdir(), 'supervisor-foreign-entry-')));
+    try { await assert.rejects(plugin.setup({ ...context, location: { directory: foreign } })); }
+    finally { await rm(foreign, { recursive: true, force: true }); }
   } finally {
     await cleanup?.(); keys.forEach((key, i) => { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; });
     await rm(root, { recursive: true, force: true });

@@ -21,6 +21,9 @@ interface NativeContext {
   tool: { transform(callback: (editor: { add(tool: NativeTool): void }) => void): Promise<Registration> };
   event?: { subscribe(options: { signal: AbortSignal }): AsyncIterable<unknown> };
 }
+// OpenCode may dispose/recreate a location within the same service process.
+// Keep the authenticated bootstrap private; never restore it to tool environments.
+let serviceBootstrap: string | undefined;
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid native Supervisor input');
   return value as Record<string, unknown>;
@@ -37,7 +40,8 @@ export default {
   async setup(context: NativeContext): Promise<() => Promise<void>> {
     const directory = await realpath(context.location.directory), options = context.options;
     if (options.readonlyLab || options.managedLab) throw new Error('V2 normal plugin cannot enable laboratory mode');
-    const bootstrap = process.env.OPENCODE_GUI_SUPERVISOR_BINDING;
+    const bootstrap = process.env.OPENCODE_GUI_SUPERVISOR_BINDING ?? serviceBootstrap;
+    delete process.env.OPENCODE_GUI_SUPERVISOR_BINDING;
     if (!bootstrap || Buffer.byteLength(bootstrap) > 16384) throw new Error('Native Supervisor requires the GUI service launch binding');
     // This untrusted hint is used only with the ordinary server credentials; prepareNormalPlugin
     // authenticates all launch fields before any bridge is created.
@@ -47,7 +51,9 @@ export default {
       `${process.env.OPENCODE_SERVER_USERNAME ?? 'opencode'}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64') : '';
     let disposed = false;
     const api = new OpenCodeV2Api({ baseUrl: origin, directory, authorization, isCurrent: () => !disposed });
-    const normal = await prepareNormalPlugin(options.normalGui, directory, origin, authorization, process.env);
+    const normal = await prepareNormalPlugin(options.normalGui, directory, origin, authorization,
+      { ...process.env, OPENCODE_GUI_SUPERVISOR_BINDING: bootstrap });
+    serviceBootstrap = bootstrap;
     const supervisor = new Supervisor(api, clock);
     const tracked = supportsProcessTracking(process.platform) ? await processTools(supervisor, directory) : undefined;
     const view = new ViewProjection(supervisor.registry, clock, { pluginVersion, openCodeVersion: parseOpenCodeVersion(context.app.version),
