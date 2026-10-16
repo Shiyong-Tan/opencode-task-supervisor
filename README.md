@@ -1,5 +1,28 @@
 # OpenCode Task Supervisor
 
+## Unreleased native OpenCode 2 support
+
+The development package keeps the OpenCode 1 default export and adds the native
+OpenCode 2 `server` export (plus server.js for local directory loading). Version
+labels are not compatibility allowlists. OpenCode 2 uses `plugins` entries with
+`package` and `options`; OpenCode 1 retains its `plugin` tuples. Both share the
+same task, cancellation, process ownership and observation policy.
+
+Native V2 registration preserves named agents, catalog-validated model/variant
+selection and inherited deny rules. Dispatch stays inline with bounded checkpoints;
+it does not automatically finalize the parent, wake it through a synthetic prompt,
+approve permissions or redispatch uncertain execution. Pending inbox items block
+cancellation safety even after an interrupt acknowledgement. Native event progress
+distinguishes actual deltas/tool progress from repeated polling; unavailable event
+observation is unknown, not proof of progress or stall.
+
+Build with `npm run build` and package with `npm pack`. Generate the protocol release
+advertisement with `node scripts/release-protocol-manifest.mjs <archive>` and attach
+both to a separately authorized release. The existing public 0.1.5 archive does not
+contain these changes. The local development version has deliberately not changed.
+Real isolated 2.0.24 loading, authenticated lease and snapshot checks use zero
+model calls; live model work and native macOS/Linux 2.0 validation remain manual.
+
 Task supervision and process tracking for OpenCode, with an optional OpenCode GUI status panel.
 
 ## Install with OpenCode GUI

@@ -24,7 +24,21 @@ calls, active-service changes, global configuration changes or runtime deploymen
 GUI presentation already supports ended/failed; no GUI version change is needed.
 Next: publish a separately authorized release and validate in an isolated profile.
 
-2026-10-16: Native V2 observation groundwork (not a released V2-compatible plugin).
+2026-10-16: Native V2 integration supersedes the observation-only checkpoint below.
+The package now exposes V1 root and V2 server entries, including server.js because
+the real 2.0.24 local loader resolves server/index rather than package.main. Native
+tool registration composes the shared Supervisor/process owners and preserves
+permission asks and trusted call identity. Native dispatch prepares named roles,
+model/variant and inherited permission rules before admitting one durable prompt.
+Live event receipts distinguish genuine progress from polling; missing observation
+remains unknown. Pending inbox work prevents false safe-to-retry cancellation.
+Real isolated 2.0.24 plugin loading published a valid authenticated GUI lease and
+served a correctly scoped bridge snapshot, with zero model calls. No global config,
+ordinary service, public release or user notification-identity change was touched.
+The dual-protocol release manifest generator is local only. Publish requires a
+separate authorized release and version decision; existing 0.1.5 is not updated.
+
+2026-10-16: Native V2 observation groundwork (historical checkpoint).
 V2ObservationApi reads only the captured loopback service, verifies workspace and
 session identity, consumes bounded ascending transcript pages, and reads native
 active execution, permission and form resources. It never sends a prompt, retries

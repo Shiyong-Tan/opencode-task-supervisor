@@ -20,7 +20,10 @@
   },
   "main": "./dist/plugin.js",
   "types": "./dist/plugin.d.ts",
-  "exports": "./dist/plugin.js",
+  "exports": {
+    ".": "./dist/plugin.js",
+    "./server": "./dist/plugin-v2.js"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -28,6 +31,7 @@
   },
   "files": [
     "dist",
+    "server.js",
     "README.md",
     "LICENSE"
   ]

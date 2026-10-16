@@ -57,3 +57,18 @@ test('identity accepts a future release only when native V2 fields validate', as
   assert.equal(await f.api.verifyVersion(signal()), '2.99.8');
   await assert.rejects(harness({ '/api/info': { version: '2.99.8' } }).api.verifyVersion(signal()));
 });
+
+test('queued native input blocks terminal and safe cancellation evidence after interrupt', async () => {
+  const f = harness({
+    '/api/session/ses_child/message': { data: [msg('msg_idle', 'idle', { outcome: 'interrupted' })], cursor: {} },
+    '/api/session/ses_child/inbox': { data: [{ id: 'msg_queued', sessionID: 'ses_child', delivery: 'queue', type: 'user' }] },
+  });
+  const snapshot = await f.api.observe('ses_child', signal());
+  assert.equal(snapshot.terminal, undefined); assert.equal(snapshot.result, undefined);
+  assert.equal(snapshot.executionStopConfirmed, false); assert.equal(snapshot.pendingTools, 1);
+});
+
+test('a foreign inbox row never establishes cancellation safety', async () => {
+  const f = harness({ '/api/session/ses_child/inbox': { data: [{ id: 'msg_foreign', sessionID: 'ses_other', delivery: 'queue' }] } });
+  await assert.rejects(f.api.observe('ses_child', signal()), /ownership/);
+});

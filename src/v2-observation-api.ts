@@ -27,14 +27,17 @@ export class V2ObservationApi {
     signal.throwIfAborted();
     if (!this.options.isCurrent()) throw new Error('V2 service generation superseded');
   }
-  private async read(path: string, signal: AbortSignal): Promise<unknown> {
+  protected async request(path: string, signal: AbortSignal, method: 'GET' | 'POST' = 'GET', body?: unknown, timeoutMs = 5000): Promise<unknown> {
     this.current(signal);
-    const bound = AbortSignal.any([signal, AbortSignal.timeout(5000)]);
+    if (!path.startsWith('/api/') || path.includes('#') || new URL(path, this.origin).origin !== this.origin) throw new Error('Invalid V2 request scope');
+    const bound = AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]);
     const response = await (this.options.fetch ?? fetch)(new URL(path, this.origin), {
-      method: 'GET', signal: bound, cache: 'no-store', redirect: 'error',
-      headers: { Authorization: this.options.authorization, Accept: 'application/json' },
+      method, signal: bound, cache: 'no-store', redirect: 'error',
+      headers: { Authorization: this.options.authorization, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     try { this.current(signal); } catch (error) { void response.body?.cancel().catch(() => undefined); throw error; }
+    if (response.status === 204) return undefined;
     if (!response.ok || !/^application\/(?:[\w.+-]+\+)?json(?:\s*;|$)/i.test(response.headers.get('content-type') ?? '') || !response.body) {
       void response.body?.cancel().catch(() => undefined); throw new Error(`V2 monitoring response unavailable: HTTP ${response.status}`);
     }
@@ -53,6 +56,7 @@ export class V2ObservationApi {
       return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
     } finally { bound.removeEventListener('abort', abort); await reader.cancel().catch(() => undefined); reader.releaseLock(); }
   }
+  protected read(path: string, signal: AbortSignal): Promise<unknown> { return this.request(path, signal); }
   async verifyVersion(signal: AbortSignal): Promise<string> {
     const info = record(await this.read('/api/info', signal));
     if (!Number.isSafeInteger(info.pid) || Number(info.pid) < 0 || !Array.isArray(info.urls) ||
@@ -79,10 +83,19 @@ export class V2ObservationApi {
       if (typeof next !== 'string' || !next || seen.has(next)) throw new Error('Invalid V2 transcript cursor');
       seen.add(next); cursor = next;
     }
-    const [active, permissions, forms] = await Promise.all([
-      this.read('/api/session/active', signal), this.read(`${path}/permission`, signal), this.read(`${path}/form`, signal),
+    const [active, permissions, forms, inbox] = await Promise.all([
+      this.read('/api/session/active', signal), this.read(`${path}/permission`, signal), this.read(`${path}/form`, signal), this.read(`${path}/inbox`, signal),
     ]);
     this.current(signal);
-    return snapshotFromV2(sessionId, messages, record(active).data, record(permissions).data, record(forms).data);
+    const snapshot = snapshotFromV2(sessionId, messages, record(active).data, record(permissions).data, record(forms).data);
+    const queued = list(record(inbox).data);
+    for (const value of queued) {
+      const item = record(value);
+      if (item.sessionID !== sessionId || typeof item.id !== 'string' || !item.id.startsWith('msg_') || !['queue', 'steer'].includes(String(item.delivery))) throw new Error('Invalid native inbox ownership');
+    }
+    if (queued.length) {
+      snapshot.pendingTools += queued.length; snapshot.terminal = undefined; snapshot.result = undefined; snapshot.executionStopConfirmed = false;
+    }
+    return snapshot;
   }
 }

@@ -28,7 +28,7 @@ export async function prepareNormalPlugin(option: unknown, directory: string, se
   return { launch, identities };
 }
 
-export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepareNormalPlugin>>, api: OpenCodeApi, view: ViewProjection) {
+export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepareNormalPlugin>>, api: Pick<OpenCodeApi, 'verifyVersion' | 'verifyCompatibility'>, view: ViewProjection) {
   const openCodeVersion = await api.verifyVersion(AbortSignal.timeout(5000));
   if (view.openCodeVersion !== openCodeVersion) throw new Error('Supervisor projection version mismatch');
   const { launch } = normal;
