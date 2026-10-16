@@ -72,3 +72,18 @@ src/notification-identity-protocol.ts. Next: wire native V2 plugin registration 
 the GUI's existing session owner, then perform dual-protocol end-to-end acceptance.
 
 2026-10-15: Fixed 0.1.4 handshake/snapshot version mismatch with package-owned runtime versions. Real authenticated bridge regression compares lease and projection versions. Release 0.1.5 retains GUI 5.1.0 support.
+
+2026-10-16: Published v0.1.6 at
+https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.6.
+Release source commit: 4603f22073ea279b162eca92c0def556731d19ec; archive built
+from a clean git archive, excluding the user's unstaged notification identity
+file. Uploaded tgz SHA256 and a fresh downloaded copy both match
+09d5ef62cae1978566e313890a5df38d6b81422240a17369f6db599b4b62a819.
+The actual unpacked artifact passed authenticated Windows 1.18.31 and 2.0.24
+plugin loading/lease/snapshot checks without rewriting package exports. The GUI
+production latest-release resolver accepts the live release for both V1 and V2,
+including the matching native protocol manifest. Configuration format verification
+was in memory only; no ordinary configuration/service was changed. The GUI fixes
+are local commit 85a9c30 with 1827 tests passing; GUI remains 6.0.0. Model ledger
+is exhausted at 50/50; full VS Code window manual acceptance and native macOS
+are not claimed as completed.
