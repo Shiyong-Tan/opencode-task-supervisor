@@ -35,7 +35,17 @@ test('V2 entrypoint registers native tools and keeps dispatch disabled without e
     const registered = JSON.parse((await tools.find(tool => tool.name === 'supervisor_register')!.execute({}, ctx)).content);
     assert.equal(registered.phase, 'registered');
     await assert.rejects(tools.find(tool => tool.name === 'supervisor_dispatch')!.execute({ taskId: registered.taskId, prompt: 'Fixture', agent: 'reviewer' }, ctx), /Dispatch disabled/);
-    await cleanup(); cleanup = undefined;
+    const aliasTools: typeof tools = [];
+    const aliasDirectory = process.platform === 'win32' ? root[0].toLowerCase() + root.slice(1) : root;
+    const aliasCleanup = await plugin.setup({ app: { version: '2.0.24' }, location: { directory: aliasDirectory },
+      options: { allowDispatch: false, normalGui: { enabled: true } },
+      tool: { transform: async callback => { callback({ add: value => aliasTools.push(value) }); return { dispose }; } } });
+    try {
+      const status = aliasTools.find(tool => tool.name === 'supervisor_result')!;
+      assert.equal(JSON.parse((await status.execute({ taskId: registered.taskId }, ctx)).content).taskId, registered.taskId);
+      await cleanup(); cleanup = undefined;
+      assert.equal(JSON.parse((await status.execute({ taskId: registered.taskId }, ctx)).content).taskId, registered.taskId);
+    } finally { await aliasCleanup(); }
     const context = { app: { version: '2.0.24' }, location: { directory: root }, options: { allowDispatch: false, normalGui: { enabled: true } },
       tool: { transform: async () => ({ dispose }) } };
     cleanup = await plugin.setup(context);

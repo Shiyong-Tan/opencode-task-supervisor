@@ -1,15 +1,10 @@
+import { acquireNativeRuntime } from './native-runtime.ts';
 import { tool, type ToolDefinition, type ToolContext } from '@opencode-ai/plugin/tool';
-import { randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { OpenCodeV2Api } from './opencode-v2-api.ts';
-import { Supervisor } from './supervisor.ts';
 import { clock, bounded } from './clock.ts';
 import { processTools, processGuidance } from './process-tools.ts';
 import { supportsProcessTracking, untrackedProcessGuidance } from './platform-capabilities.ts';
-import { pluginVersion } from './plugin-version.ts';
-import { ViewProjection } from './view-projection.ts';
-import { prepareNormalPlugin, startNormalPlugin } from './normal-plugin.ts';
-import { parseOpenCodeVersion } from './opencode-version.ts';
+import { prepareNormalPlugin } from './normal-plugin.ts';
 import legacyPlugin from './plugin.ts';
 
 interface Registration { dispose(): Promise<void> }
@@ -50,15 +45,11 @@ export default {
     const authorization = process.env.OPENCODE_SERVER_PASSWORD ? 'Basic ' + Buffer.from(
       `${process.env.OPENCODE_SERVER_USERNAME ?? 'opencode'}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString('base64') : '';
     let disposed = false;
-    const api = new OpenCodeV2Api({ baseUrl: origin, directory, authorization, isCurrent: () => !disposed });
     const normal = await prepareNormalPlugin(options.normalGui, directory, origin, authorization,
       { ...process.env, OPENCODE_GUI_SUPERVISOR_BINDING: bootstrap });
     serviceBootstrap = bootstrap;
-    const supervisor = new Supervisor(api, clock);
-    const tracked = supportsProcessTracking(process.platform) ? await processTools(supervisor, directory) : undefined;
-    const view = new ViewProjection(supervisor.registry, clock, { pluginVersion, openCodeVersion: parseOpenCodeVersion(context.app.version),
-      isolationId: normal.launch.binding.integrationId }, () => tracked?.executions.all() ?? [], () => [], () => new Date(),
-      parent => normal.identities.forParent(parent), randomBytes(32).toString('hex'));
+    const runtime = await acquireNativeRuntime(normal, directory, origin, authorization, context.app.version);
+    const { api, supervisor, tracked } = runtime;
     const taskSchema = { taskId: { type: 'string', minLength: 1 } };
     const schema = (properties: Record<string, unknown>, required: string[] = ['taskId']) => ({ type: 'object', properties, required, additionalProperties: false });
     const definitions: NativeTool[] = [];
@@ -101,7 +92,9 @@ export default {
         return typeof result === 'string' ? { content: result } : { content: result.output, metadata: result.metadata };
       } });
     }
-    const registration = await context.tool.transform(editor => { for (const definition of definitions) editor.add(definition); });
+    let registration: Registration;
+    try { registration = await context.tool.transform(editor => { for (const definition of definitions) editor.add(definition); }); }
+    catch (error) { await runtime.release(); throw error; }
     const stream = new AbortController();
     const activity = (async () => {
       if (!context.event) return;
@@ -118,18 +111,9 @@ export default {
         await clock.sleep(1000, stream.signal).catch(() => undefined);
       }
     })();
-    let bridge: Awaited<ReturnType<typeof startNormalPlugin>> | undefined, ticking = false;
-    const timer = setInterval(() => {
-      if (disposed || ticking) return; ticking = true;
-      void (async () => {
-        bridge ??= await startNormalPlugin(normal, api, view);
-        await bridge.tick(); await tracked?.tick(); await supervisor.tick();
-      })().catch(error => console.error(JSON.stringify({ source: 'OpenCodeTaskSupervisor', kind: 'v2-monitor-failure', error: String(error) })))
-        .finally(() => { ticking = false; });
-    }, 1000);
-    timer.unref();
-    return async () => { disposed = true; clearInterval(timer); stream.abort();
-      await Promise.allSettled([activity, registration.dispose(), bridge?.close(), tracked?.dispose()]);
+    return async () => { disposed = true; stream.abort();
+      await Promise.allSettled([activity, registration.dispose()]);
+      await runtime.release();
     };
   },
 };
