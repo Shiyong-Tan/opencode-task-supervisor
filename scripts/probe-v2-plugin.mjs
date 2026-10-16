@@ -8,6 +8,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { canonicalWorkspace, serviceAuthenticationProof, verifyConnectionLease, bridgeBearer } from '../dist/normal-connection-protocol.js';
 
 const binary = process.argv[2];
+const legacy = process.argv.includes('--v1');
 if (!binary || !isAbsolute(binary)) throw new Error('Supply the absolute isolated V2 executable');
 const root = await realpath(await mkdtemp(join(tmpdir(), 'supervisor-v2-probe-')));
 for (const name of ['workspace', 'home', 'config', 'data', 'cache', 'state', 'tmp', 'private']) await mkdir(join(root, name));
@@ -17,12 +18,12 @@ const pluginDirectory = join(root, 'plugin'); await mkdir(pluginDirectory);
 await cp(fileURLToPath(new URL('../dist', import.meta.url)), join(pluginDirectory, 'dist'), { recursive: true });
 await cp(fileURLToPath(new URL('../server.js', import.meta.url)), join(pluginDirectory, 'server.js'));
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-await writeFile(join(pluginDirectory, 'package.json'), JSON.stringify({ ...manifest, main: './dist/plugin-v2.js', exports: './dist/plugin-v2.js' }));
+await writeFile(join(pluginDirectory, 'package.json'), JSON.stringify(manifest));
 await symlink(fileURLToPath(new URL('../node_modules', import.meta.url)), join(pluginDirectory, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
-await writeFile(join(configDirectory, 'opencode.json'), JSON.stringify({ plugins: [{
-    package: pathToFileURL(pluginDirectory).href,
-    options: { allowDispatch: false, allowNotifications: false, normalGui: { enabled: true } },
-}] }));
+const options = { allowDispatch: false, allowNotifications: false, normalGui: { enabled: true } };
+await writeFile(join(configDirectory, 'opencode.json'), JSON.stringify(legacy ? {
+    plugin: [[pathToFileURL(join(pluginDirectory, 'dist', 'plugin.js')).href, options]],
+} : { plugins: [{ package: pathToFileURL(pluginDirectory).href, options }] }));
 const socket = createServer(); await new Promise(resolve => socket.listen(0, '127.0.0.1', resolve));
 const port = socket.address().port; await new Promise(resolve => socket.close(resolve));
 const password = randomBytes(32).toString('hex'), authorization = 'Basic ' + Buffer.from(`opencode:${password}`).toString('base64');
@@ -48,7 +49,7 @@ try {
     const deadline = Date.now() + 25000; let lease;
     while (Date.now() < deadline && child.exitCode === null && !spawnError) {
         // V2 loads a location lazily; a server listener alone does not initialize its plugins.
-        try { await fetch(`${binding.serviceOrigin}/api/agent?directory=${encodeURIComponent(directory)}`, {
+        try { await fetch(`${binding.serviceOrigin}${legacy ? '/agent' : '/api/agent'}?directory=${encodeURIComponent(directory)}`, {
             headers: { Authorization: authorization }, signal: AbortSignal.timeout(1000),
         }); } catch { /* Only the new isolated service is probed. */ }
         try { lease = verifyConnectionLease(JSON.parse(await readFile(join(privateDirectory, `${binding.serviceId}.json`), 'utf8')), binding, launchKey, Date.now()); break; }
@@ -65,6 +66,6 @@ try {
     if (!response.ok) throw new Error(`Native plugin snapshot HTTP ${response.status}`);
     const snapshot = await response.json();
     if (JSON.stringify(snapshot).includes(password)) throw new Error('Credentials appeared in plugin projection');
-    console.log(JSON.stringify({ verified: true, opencodeVersion: lease.opencodeVersion, pluginVersion: lease.pluginVersion,
+    console.log(JSON.stringify({ verified: true, protocol: legacy ? 'v1' : 'v2', opencodeVersion: lease.opencodeVersion, pluginVersion: lease.pluginVersion,
         modelCalls: 0, leaseAndSnapshot: true, isolatedProfile: root }));
 } finally { if (child.exitCode === null && !spawnError) child.kill(); await ended; }
