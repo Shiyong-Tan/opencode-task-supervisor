@@ -87,3 +87,5 @@ was in memory only; no ordinary configuration/service was changed. The GUI fixes
 are local commit 85a9c30 with 1827 tests passing; GUI remains 6.0.0. Model ledger
 is exhausted at 50/50; full VS Code window manual acceptance and native macOS
 are not claimed as completed.
+
+2026-10-16 correction: the 0.1.6 resolver check above verified metadata, not remote installation. Actual fresh native installation rejects raw tgz URLs. Version 0.1.6 was demoted to prerelease. Version 0.1.7 adds a runtime-only compiled Git distribution tag for V2; V1 retains the archive. A fresh 2.0.24 profile successfully installed the equivalent runtime-only Git payload. Source index and existing user notification changes remain untouched. No additional model calls.

@@ -2,7 +2,7 @@ name: Build release
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   package:
     runs-on: windows-latest
@@ -18,7 +18,10 @@ jobs:
       - shell: pwsh
         run: |
           $asset = Get-Item opencode-task-supervisor-*.tgz
-          node scripts/release-protocol-manifest.mjs $asset.FullName
+          $distribution = node scripts/native-distribution.mjs $asset.FullName --push
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $native = $distribution | ConvertFrom-Json
+          node scripts/release-protocol-manifest.mjs $asset.FullName $native.nativeCommit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-Item opencode-task-supervisor-*.tgz, opencode-task-supervisor-*.protocols.json | ForEach-Object {
             $hash = (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower()
