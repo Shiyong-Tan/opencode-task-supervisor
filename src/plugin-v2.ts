@@ -9,7 +9,7 @@ import legacyPlugin from './plugin.ts';
 
 interface Registration { dispose(): Promise<void> }
 interface NativeToolContext { sessionID: string; messageID: string; id: string; agent: string; signal: AbortSignal; progress(value: Record<string, unknown>): Promise<void> }
-interface NativeTool { name: string; description: string; input: unknown; options: { codemode: false };
+interface NativeTool { name: string; description: string; input: unknown; options: { codemode: false; permission?: string };
   execute(input: unknown, context: NativeToolContext): Promise<{ content: string; metadata?: Record<string, unknown> }> }
 interface NativeContext {
   app: { version: string }; location: { directory: string }; options: Record<string, unknown>;
@@ -49,12 +49,30 @@ export default {
       { ...process.env, OPENCODE_GUI_SUPERVISOR_BINDING: bootstrap });
     serviceBootstrap = bootstrap;
     const runtime = await acquireNativeRuntime(normal, directory, origin, authorization, context.app.version);
-    const { api, supervisor, tracked } = runtime;
+    const { api, supervisor, tracked, todos } = runtime;
     const taskSchema = { taskId: { type: 'string', minLength: 1 } };
     const schema = (properties: Record<string, unknown>, required: string[] = ['taskId']) => ({ type: 'object', properties, required, additionalProperties: false });
     const definitions: NativeTool[] = [];
     const add = (name: string, description: string, input: unknown, execute: (input: Record<string, unknown>, ctx: NativeToolContext) => Promise<unknown>) =>
       definitions.push({ name, description, input, options: { codemode: false }, execute: async (value, ctx) => ({ content: JSON.stringify(await execute(record(value), ctx)) }) });
+    const todoItem = { type: 'object', additionalProperties: false, required: ['id', 'content', 'status', 'priority'], properties: {
+      id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,80}$' }, content: { type: 'string', minLength: 1, maxLength: 500 },
+      status: { enum: ['pending', 'in_progress', 'completed'] }, priority: { enum: ['high', 'medium', 'low'] } } };
+    for (const write of [false, true]) definitions.push({
+      name: write ? 'supervisor_todo_write' : 'supervisor_todo_read',
+      description: write ? 'Replace your session todo list using the revision from supervisor_todo_read. Preserve stable item IDs. An empty list explicitly clears it. Updates persist and appear in the GUI.'
+        : 'Read your current session todo list and revision. Use supervisor_todo_write to track multi-step work. Session identity is supplied by OpenCode.',
+      input: write ? schema({ expectedRevision: { type: 'integer', minimum: 0 }, items: { type: 'array', maxItems: 64, items: todoItem } }, ['expectedRevision', 'items']) : schema({}, []),
+      options: { codemode: false, permission: 'todowrite' },
+      execute: async (input, ctx) => {
+        const value = record(input);
+        if (write) await api.ask(ctx, 'todowrite', ['*'], { operation: 'update session todo list' });
+        ctx.signal.throwIfAborted();
+        if (write && !Number.isSafeInteger(value.expectedRevision)) throw new Error('Todo revision required');
+        const state = write ? await todos.write(ctx.sessionID, value.expectedRevision as number, value.items) : await todos.read(ctx.sessionID);
+        return { content: JSON.stringify(state), metadata: { todos: state.items } };
+      },
+    });
     add('supervisor_register', 'Register one parent-owned task. Does not start a model.', schema({}, []), async (_input, ctx) => supervisor.register(ctx.sessionID));
     add('supervisor_dispatch', 'Dispatch a configured role and keep waiting until completion, checkpoint or a health alert. Continue the SAME task with supervisor_wait; do not finalize merely to wait. Requires explicit dispatch authorization and may incur model fees.',
       schema({ ...taskSchema, prompt: { type: 'string', minLength: 1, maxLength: 32000 }, agent: { type: 'string', minLength: 1, maxLength: 180 },

@@ -1,5 +1,20 @@
 # OpenCode Task Supervisor
 
+## Persistent todo lists for OpenCode 2
+
+`supervisor_todo_read({})` reads the calling session's list and revision.
+`supervisor_todo_write({ expectedRevision, items })` replaces it atomically; read
+first and preserve each item's stable `id`. Items have `content` (up to 500
+characters), `status` (`pending`, `in_progress`, `completed`) and `priority`
+(`high`, `medium`, `low`). At most 64 items are accepted. An empty list clears it.
+Concurrent stale updates fail instead of silently losing changes.
+
+These direct native tools use the existing `todowrite` permission. The caller
+cannot supply another session ID. Lists persist in GUI private workspace storage
+and are available over the existing authenticated read-only bridge after restart.
+The GUI shows live updates in chat Todo cards and the current session's saved list
+in the Supervisor panel. OpenCode 1 retains its native `todowrite` implementation.
+
 ## OpenCode 1 and 2 support (0.1.8)
 
 The package keeps the OpenCode 1 default export and adds the native

@@ -105,3 +105,15 @@ Published stable v0.1.10, source 2866508, Git distribution 273b4eff356f4acfbcd63
 2026-10-16 per-child environment: supervisor_run accepts optional string env overrides, validates keys/count/size/NUL and rejects private GUI bootstrap keys. Exact-command permission includes overrides; execution status does not retain values. Windows builds a Unicode environment block for CreateProcess inside the existing Job; Linux merges validated overrides only into spawn env. Service/helper environments remain unchanged. Tests 161/161, typecheck/build pass; real tracked Windows and Ubuntu/WSL smoke verifies project temp selection, Unicode, descendant inheritance, exit/stop evidence and unchanged parent environment. No models or ordinary service/configuration changes.
 
 Published stable v0.1.11 after clean-source packaging and real Windows 1.18.31/2.0.31 remote installation, production GUI handshake/observation and native alias bridge checks. Source 7579199; distribution d17f3a5d8cd449d0e3e0ddd9e886524665b923fa; archive SHA256 a01f691ed738411e045f7e5670d562559cabb364403e77c9afee1771df4081c0. GUI remains 6.0.0 and needs no rebuild. Existing user notification identity change remains excluded.
+# Persistent native todo tools — 2026-10-16
+
+Add supervisor_todo_read/write for native OpenCode 2, with session identity taken
+from tool context, bounded validated items, atomic private storage and revision
+conflict protection. Native tools reuse todowrite authorization; no permission
+configuration is changed. The existing authenticated GUI bridge adds an optional
+session-fenced snapshot, preserving older clients and the V1 native todo path.
+GUI live chat cards consume the same tool metadata, while its Supervisor panel
+restores saved state after reconnect. No service restart or model call is used.
+Local validation covers persistence, isolation, stale concurrent writes, clearing,
+malformed storage, registration and GUI projection. Release publication remains
+separate; version labels are unchanged for this local implementation.

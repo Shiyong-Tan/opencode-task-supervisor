@@ -1,3 +1,4 @@
+import type { SessionTodos } from './todos.ts';
 import { mkdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseNormalLaunch } from './normal-launch-protocol.ts';
@@ -28,7 +29,7 @@ export async function prepareNormalPlugin(option: unknown, directory: string, se
   return { launch, identities };
 }
 
-export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepareNormalPlugin>>, api: Pick<OpenCodeApi, 'verifyVersion' | 'verifyCompatibility'>, view: ViewProjection) {
+export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepareNormalPlugin>>, api: Pick<OpenCodeApi, 'verifyVersion' | 'verifyCompatibility'>, view: ViewProjection, todos?: SessionTodos) {
   const openCodeVersion = await api.verifyVersion(AbortSignal.timeout(5000));
   if (view.openCodeVersion !== openCodeVersion) throw new Error('Supervisor projection version mismatch');
   const { launch } = normal;
@@ -38,7 +39,7 @@ export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepar
       if (signal.aborted) throw new Error('Aborted');
       // Probe after plugin initialization, never recursively during instance startup.
       if (await api.verifyCompatibility(signal) !== openCodeVersion) throw new Error('OpenCode service identity changed');
-      return encodeNormalView(view.snapshot(parent), launch.binding.serviceId);
+      return encodeNormalView({ ...view.snapshot(parent), ...(todos ? { todos: await todos.read(parent) } : {}) }, launch.binding.serviceId);
     } });
   let renewedAt = Date.now();
   return {

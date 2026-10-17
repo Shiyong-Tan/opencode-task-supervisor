@@ -34,6 +34,28 @@ test('V2 entrypoint registers native tools and keeps dispatch disabled without e
     const ctx = { sessionID: 'ses_parent', messageID: 'msg_parent', id: 'call_A', agent: 'researcher', signal: new AbortController().signal, progress: async () => {} };
     const registered = JSON.parse((await tools.find(tool => tool.name === 'supervisor_register')!.execute({}, ctx)).content);
     assert.equal(registered.phase, 'registered');
+    const readTodos = tools.find(tool => tool.name === 'supervisor_todo_read')!;
+    assert.ok(tools.some(tool => tool.name === 'supervisor_todo_write'));
+    assert.deepEqual(JSON.parse((await readTodos.execute({}, ctx)).content), { sessionId: 'ses_parent', revision: 0, items: [] });
+    const writeTodos = tools.find(tool => tool.name === 'supervisor_todo_write')!;
+    const originalFetch = globalThis.fetch;
+    let effect = 'deny';
+    const permissionRequests: Record<string, unknown>[] = [];
+    globalThis.fetch = async (url, init) => {
+      assert.ok(String(url).includes('/api/session/ses_parent/permission'));
+      permissionRequests.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ data: { effect } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const input = { expectedRevision: 0, items: [{ id: 'audit', content: 'Audit results', status: 'pending', priority: 'high' }] };
+      await assert.rejects(writeTodos.execute(input, ctx), /Permission rejected/);
+      assert.equal(JSON.parse((await readTodos.execute({}, ctx)).content).revision, 0);
+      effect = 'allow';
+      const written = JSON.parse((await writeTodos.execute(input, ctx)).content);
+      assert.equal(written.revision, 1);
+      assert.equal(JSON.parse((await readTodos.execute({}, { ...ctx, sessionID: 'ses_child' })).content).revision, 0);
+      assert.equal(permissionRequests[0]!.action, 'todowrite');
+    } finally { globalThis.fetch = originalFetch; }
     await assert.rejects(tools.find(tool => tool.name === 'supervisor_dispatch')!.execute({ taskId: registered.taskId, prompt: 'Fixture', agent: 'reviewer' }, ctx), /Dispatch disabled/);
     const aliasTools: typeof tools = [];
     const aliasDirectory = process.platform === 'win32' ? root[0].toLowerCase() + root.slice(1) : root;
@@ -42,6 +64,8 @@ test('V2 entrypoint registers native tools and keeps dispatch disabled without e
       tool: { transform: async callback => { callback({ add: value => aliasTools.push(value) }); return { dispose }; } } });
     try {
       const status = aliasTools.find(tool => tool.name === 'supervisor_result')!;
+      const aliasRead = aliasTools.find(tool => tool.name === 'supervisor_todo_read')!;
+      assert.equal(JSON.parse((await aliasRead.execute({}, ctx)).content).revision, 1);
       assert.equal(JSON.parse((await status.execute({ taskId: registered.taskId }, ctx)).content).taskId, registered.taskId);
       await cleanup(); cleanup = undefined;
       assert.equal(JSON.parse((await status.execute({ taskId: registered.taskId }, ctx)).content).taskId, registered.taskId);

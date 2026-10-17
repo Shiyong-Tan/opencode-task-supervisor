@@ -47,6 +47,10 @@ test('normal view adapter preserves existing projection owners while rejecting f
   assert.equal(wire.schemaVersion, 2);
   assert.equal(wire.instanceId, instanceId);
   assert.deepEqual(parseNormalView(wire, integrationId, serviceId), before);
+  const todos = { sessionId: before.parentSessionId, revision: 1,
+    items: [{ id: 'audit', content: 'Audit', status: 'pending' as const, priority: 'high' as const }] };
+  assert.deepEqual(parseNormalView(encodeNormalView({ ...before, todos }, serviceId), integrationId, serviceId).todos, todos);
+  assert.throws(() => encodeNormalView({ ...before, todos: { ...todos, sessionId: 'ses_foreign' } }, serviceId));
   for (const change of [{ schemaVersion: 1 }, { serviceId: '44'.repeat(32) }, { integrationId: '55'.repeat(32) },
     { isolationId: integrationId }, { scope: 'isolated_allowlisted_commands' }, { parentSessionId: 'ses_B' }]) {
     assert.throws(() => parseNormalView({ ...wire, ...change }, integrationId, serviceId));
