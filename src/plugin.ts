@@ -1,3 +1,4 @@
+import { waitMode } from './wait-mode.ts';
 import { supportsProcessTracking, untrackedProcessGuidance } from './platform-capabilities.ts';
 import { pluginVersion } from './plugin-version.ts';
 import { tool } from '@opencode-ai/plugin';
@@ -113,18 +114,20 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
         },
       }),
       supervisor_dispatch: tool({
-        description: 'Dispatch a new child and keep this tool running until completion, a monitoring checkpoint, or a new health alert. Supply agent for a configured role. At a checkpoint continue the same task with supervisor_wait; do not end the parent turn merely to wait. No completion wake-up prompt is sent. Requires allowDispatch; may incur model fees.',
+        description: 'Dispatch a new child and keep this tool running until completion or a new health alert. Default mode until_attention suppresses healthy timed returns; mode checkpoint explicitly enables waitMs coordination checkpoints. Supply agent for a configured role. At a checkpoint continue the same task with supervisor_wait; do not end the parent turn merely to wait. No completion wake-up prompt is sent. Requires allowDispatch; may incur model fees.',
         args: { ...taskArgs, prompt: tool.schema.string().min(1).max(32000),
           description: tool.schema.string().min(1).max(500).optional().describe('Short human-readable task name, e.g. Check remaining reconstruction processes. Supply this for the GUI subagent title; do not use IDs or the full prompt.'),
+          mode: tool.schema.enum(['until_attention', 'checkpoint']).default('until_attention'),
           waitMs: tool.schema.number().min(1000).max(120000).default(60000),
           agent: tool.schema.string().min(1).max(180).optional().describe('Exact configured subagent name. Omit only for legacy generic dispatch.') },
         async execute(args, ctx) {
+          const mode = waitMode(args.mode);
           const start = performance.now();
           if (!allowDispatch) throw new Error('Dispatch disabled: enable allowDispatch only after authorizing model execution');
           const existing = supervisor.status(args.taskId, ctx.sessionID);
           if (existing.phase !== 'registered') {
             if (existing.agent !== args.agent) throw new Error('Task agent cannot change after dispatch');
-            return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort));
+            return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort, mode));
           }
           await bounded(clock, 5000, signal => api.verifyCompatibility(signal), ctx.abort);
           const selection = args.agent === undefined ? undefined : await bounded(clock, 5000,
@@ -135,7 +138,7 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
           const value = supervisor.dispatch(args.taskId, ctx.sessionID, args.prompt + (tracked ? processGuidance : !managed && !readonlyLab ? untrackedProcessGuidance : ''), selection, 'inline', args.description);
           ctx.metadata({ title: value.title, metadata: { taskId: value.taskId, agent: value.agent } });
           await audit({ type: 'dispatch_started', ...value, callerMessageId: ctx.messageID, elapsedMs: performance.now() - start });
-          return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort));
+          return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort, mode));
         },
       }),
       supervisor_status: tool({
@@ -158,9 +161,9 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
         },
       }),
       supervisor_wait: tool({
-        description: 'Keep waiting on the SAME task until completion, checkpoint or a new health alert. Polling is internal and does not invoke a model. Default 60000ms, maximum 120000ms. Inspect the returned evidence and continue work; do not finalize simply because work remains pending.',
-        args: { ...taskArgs, waitMs: tool.schema.number().min(1000).max(120000).default(60000) },
-        async execute(args, ctx) { return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort)); },
+        description: 'Keep waiting on the SAME task until completion or a new health alert. Default mode until_attention keeps healthy waiting internal without invoking a model. Only use mode checkpoint for intentional coordination; waitMs then defaults to 60000ms, maximum 120000ms. Inspect the returned evidence and continue work; do not finalize simply because work remains pending.',
+        args: { ...taskArgs, mode: tool.schema.enum(['until_attention', 'checkpoint']).default('until_attention'), waitMs: tool.schema.number().min(1000).max(120000).default(60000) },
+        async execute(args, ctx) { return JSON.stringify(await supervisor.waitForDecision(args.taskId, ctx.sessionID, args.waitMs, ctx.abort, waitMode(args.mode))); },
       }),
       supervisor_cancel: tool({
         description: 'Explicitly request session abort for your own supervised child after inspecting a stall or other issue. Does not kill arbitrary processes or redispatch. HTTP acknowledgment does not prove tool-process termination; verify old execution stopped before any replacement.',

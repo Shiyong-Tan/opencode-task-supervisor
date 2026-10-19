@@ -1,4 +1,5 @@
 import { bounded } from './clock.ts';
+import type { WaitMode } from './wait-mode.ts';
 import { Registry, report } from './registry.ts';
 import type { Api, Clock, Identity, Task } from './types.ts';
 import type { Snapshot } from './types.ts';
@@ -83,7 +84,7 @@ export class Supervisor {
     return { ...report(task), result: task.result ? { ...task.result } : null };
   }
   /** Keeps the tool open, not the model generating. HTTP polling consumes no model calls. */
-  async waitForDecision(taskId: string, owner: string, waitMs = 60_000, signal?: AbortSignal) {
+  async waitForDecision(taskId: string, owner: string, waitMs = 60_000, signal?: AbortSignal, mode: WaitMode = 'checkpoint') {
     if (!Number.isFinite(waitMs) || waitMs < 1000 || waitMs > 120_000) throw new Error('waitMs must be between 1000 and 120000');
     const task = this.registry.get(taskId, owner);
     const attention = () => task.health !== 'running' && task.health !== 'ended';
@@ -92,15 +93,17 @@ export class Supervisor {
     if (!ready()) {
       try {
         const budget = task.health === 'suspected_stall' ? Math.min(waitMs, 30000) : waitMs;
-        await bounded(this.clock, budget, async inner => {
+        const monitor = async (inner: AbortSignal) => {
           while (!inner.aborted) {
-            await this.observe(taskId, owner);
+            await bounded(this.clock, this.requestMs + 1000, () => this.observe(taskId, owner), inner);
             inner.throwIfAborted();
             if (!attention()) task.monitorAlert = undefined;
             if (ready()) return;
             await this.clock.sleep(1000, inner);
           }
-        }, signal);
+        };
+        if (mode === 'until_attention' && !attention()) await monitor(signal ?? new AbortController().signal);
+        else await bounded(this.clock, budget, monitor, signal);
       } catch (error) {
         if (signal?.aborted) throw error;
         if (!(error instanceof Error) || error.message !== 'deadline_exceeded') throw error;
@@ -122,7 +125,7 @@ export class Supervisor {
         task.health === 'suspected_stall' ? 'Inspect the child messages, tool state, permission/question requests and attributable process evidence now. Do not blindly repeat supervisor_wait. For a persistent stall, decide whether to cancel or justify a bounded wait with concrete progress evidence. Decide cancellation yourself within the authorized task; do not ask the user to choose routine recovery. Never overlap replacements without verified stop evidence.' :
         event === 'completed' ? 'Read and assess this result, then continue the original request. Finalize only when the overall work is complete.' :
         event === 'not_dispatched' ? 'This task is only registered; dispatch it once before waiting.' :
-        'This is a monitoring checkpoint, not completion. Inspect health and activity evidence. Continue with supervisor_wait for the same task (default 60000ms), or decide whether to request supervisor_cancel. Do not finalize merely because a child is pending. Never start overlapping replacement work without verified old-execution stop evidence.' };
+        'This is a monitoring checkpoint, not completion. Inspect health and activity evidence. Continue with supervisor_wait for the same task (default until_attention; mode checkpoint opts into timed coordination), or decide whether to request supervisor_cancel. Do not finalize merely because a child is pending. Never start overlapping replacement work without verified old-execution stop evidence.' };
   }
 
   /** Explicit, parent-owned session abort. Acknowledgment is never a process-tree certificate. */

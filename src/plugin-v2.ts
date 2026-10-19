@@ -1,3 +1,4 @@
+import { waitMode } from './wait-mode.ts';
 import { acquireNativeRuntime } from './native-runtime.ts';
 import { tool, type ToolDefinition, type ToolContext } from '@opencode-ai/plugin/tool';
 import { realpath } from 'node:fs/promises';
@@ -51,6 +52,7 @@ export default {
     const runtime = await acquireNativeRuntime(normal, directory, origin, authorization, context.app.version);
     const { api, supervisor, tracked, todos } = runtime;
     const taskSchema = { taskId: { type: 'string', minLength: 1 } };
+    const modeSchema = { type: 'string', enum: ['until_attention', 'checkpoint'], default: 'until_attention' };
     const schema = (properties: Record<string, unknown>, required: string[] = ['taskId']) => ({ type: 'object', properties, required, additionalProperties: false });
     const definitions: NativeTool[] = [];
     const add = (name: string, description: string, input: unknown, execute: (input: Record<string, unknown>, ctx: NativeToolContext) => Promise<unknown>) =>
@@ -74,9 +76,10 @@ export default {
       },
     });
     add('supervisor_register', 'Register one parent-owned task. Does not start a model.', schema({}, []), async (_input, ctx) => supervisor.register(ctx.sessionID));
-    add('supervisor_dispatch', 'Dispatch a configured role and keep waiting until completion, checkpoint or a health alert. Continue the SAME task with supervisor_wait; do not finalize merely to wait. Requires explicit dispatch authorization and may incur model fees.',
+    add('supervisor_dispatch', 'Dispatch a configured role and keep waiting until completion or a health alert. Default mode until_attention suppresses healthy timed returns; mode checkpoint enables intentional waitMs coordination checkpoints. Continue the SAME task with supervisor_wait; do not finalize merely to wait. Requires explicit dispatch authorization and may incur model fees.',
       schema({ ...taskSchema, prompt: { type: 'string', minLength: 1, maxLength: 32000 }, agent: { type: 'string', minLength: 1, maxLength: 180 },
-        description: { type: 'string', minLength: 1, maxLength: 500 }, waitMs: { type: 'number', minimum: 1000, maximum: 120000 } }, ['taskId', 'prompt', 'agent']), async (input, ctx) => {
+        description: { type: 'string', minLength: 1, maxLength: 500 }, mode: modeSchema, waitMs: { type: 'number', minimum: 1000, maximum: 120000 } }, ['taskId', 'prompt', 'agent']), async (input, ctx) => {
+        const mode = waitMode(input.mode), duration = waitMs(input);
         if (options.allowDispatch !== true) throw new Error('Dispatch disabled');
         const id = taskId(input), existing = supervisor.status(id, ctx.sessionID);
         if (typeof input.agent !== 'string' || typeof input.prompt !== 'string') throw new Error('Configured role and prompt required');
@@ -88,13 +91,13 @@ export default {
             typeof input.description === 'string' ? input.description : undefined);
           await ctx.progress({ title: task.title, taskId: task.taskId, agent: task.agent });
         } else if (existing.agent !== input.agent) throw new Error('Task agent cannot change after dispatch');
-        return supervisor.waitForDecision(id, ctx.sessionID, waitMs(input), ctx.signal);
+        return supervisor.waitForDecision(id, ctx.sessionID, duration, ctx.signal, mode);
       });
     add('supervisor_status', 'Refresh an owned task. Unknown process state is not proof of termination.', schema(taskSchema), async (input, ctx) => {
       await supervisor.observe(taskId(input), ctx.sessionID); return supervisor.status(taskId(input), ctx.sessionID);
     });
-    add('supervisor_wait', 'Wait on the SAME task until completion, checkpoint or health alert. Internal polling does not invoke a model. Continue work after checkpoints.',
-      schema({ ...taskSchema, waitMs: { type: 'number', minimum: 1000, maximum: 120000 } }), async (input, ctx) => supervisor.waitForDecision(taskId(input), ctx.sessionID, waitMs(input), ctx.signal));
+    add('supervisor_wait', 'Wait on the SAME task until completion or health alert. Default mode until_attention keeps healthy waits internal without model calls. Use mode checkpoint only for intentional timed coordination; waitMs applies only to that mode. Continue the original work after completion.',
+      schema({ ...taskSchema, mode: modeSchema, waitMs: { type: 'number', minimum: 1000, maximum: 120000 } }), async (input, ctx) => supervisor.waitForDecision(taskId(input), ctx.sessionID, waitMs(input), ctx.signal, waitMode(input.mode)));
     add('supervisor_result', 'Read the owned child result without redispatching.', schema(taskSchema), async (input, ctx) => supervisor.result(taskId(input), ctx.sessionID));
     add('supervisor_cancel', 'Request child interruption. Acknowledgement does not prove tool/process termination; verify stop evidence before replacement.', schema(taskSchema),
       async (input, ctx) => supervisor.cancel(taskId(input), ctx.sessionID, ctx.signal));

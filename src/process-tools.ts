@@ -10,10 +10,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { processEnvironment } from './process-environment.ts';
 import { processProgress } from './process-progress.ts';
+import { waitMode } from './wait-mode.ts';
+import { bounded } from './clock.ts';
 
 export const processGuidance = `\n\nProcess tracking for this supervised task:
 Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Optional env supplies per-process environment overrides (for example TMP, TEMP and TMPDIR set to an existing project-local directory). Overrides are inherited by descendants; they do not enforce filesystem containment. Command and environment permission is checked before launch.
-The tool returns an executionId, NOT completion. Continue supervisor_process_wait on that SAME execution until it stops or needs review; read its bounded output and exit code. Never finalize merely because a command was started.
+The tool returns an executionId, NOT completion. Prefer the default until_attention wait mode: healthy sampling stays internal, without timed model checkpoints. Use mode checkpoint only when an explicit coordination deadline is needed. Continue supervisor_process_wait on that SAME execution until it stops or needs review; read its bounded output and exit code. Never finalize merely because a command was started.
 Simple reads may use ordinary tools; ordinary shell processes are not tracked. If tracking is unavailable, report it. Never relaunch an uncertain execution or silently fall back to another launch tool. Quiet/GPU/waiting processes are not proven dead. No automatic termination or retry.
 On Linux/WSL, tracking covers a newly created process group using /proc identity and counters. Do not daemonize, call setsid, or move descendants out of that group. Group completion is not proof that escaped descendants stopped; safeToRetry remains false. Use Linux executable/cwd paths when OpenCode runs inside WSL.`;
 
@@ -96,17 +98,20 @@ export async function processTools(supervisor: Supervisor, directory: string,
         },
       }),
       supervisor_process_wait: tool({
-        description: 'Wait on the SAME tracked execution, then inspect status, output and exit code. Continue waiting if still running; do not finalize on a checkpoint. Abort only stops waiting, never the process.',
-        args: { ...executionArgs, waitMs: tool.schema.number().int().min(1000).max(60000).default(30000) },
+        description: 'Wait on the SAME execution. Default mode until_attention keeps this call open while observations remain healthy; returns only on completion, review-needed health or uncertainty, with output and exit code. Internal checks do not invoke a model. Use mode checkpoint only for an intentional timed coordination return; waitMs applies only to checkpoint mode. Abort stops waiting, never the process. Quiet is not proof of a hang.',
+        args: { ...executionArgs, mode: tool.schema.enum(['until_attention', 'checkpoint']).default('until_attention'),
+          waitMs: tool.schema.number().int().min(1000).max(60000).default(30000) },
         async execute(args, ctx) {
           const waitMs = args.waitMs ?? 30000;
           if (!Number.isFinite(waitMs) || waitMs < 1000 || waitMs > 60000) throw new Error('Invalid wait duration');
-          const deadline = supervisor.clock.now() + waitMs;
+          const deadline = waitMode(args.mode) === 'checkpoint' ? supervisor.clock.now() + waitMs : Infinity;
+          ctx.abort.throwIfAborted();
           let value = executions.status(args.executionId, ctx.sessionID);
           ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
           while (pending(value) && value.health === 'running' && supervisor.clock.now() < deadline) {
             await supervisor.clock.sleep(Math.min(1000, deadline - supervisor.clock.now()), ctx.abort);
-            value = await executions.observe(args.executionId, ctx.sessionID);
+            value = await bounded(supervisor.clock, 6000, () => executions.observe(args.executionId, ctx.sessionID), ctx.abort);
+            ctx.abort.throwIfAborted();
             ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
           }
           return JSON.stringify(value);

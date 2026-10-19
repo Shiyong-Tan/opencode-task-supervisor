@@ -43,6 +43,37 @@ test('a checkpoint preserves the original task and continuing a wait never redis
   assert.equal(api.dispatches, 1); assert.equal(api.creates, 1); assert.equal(api.notifications, 0);
 });
 
+test('until_attention keeps healthy parent monitoring internal beyond the old two-minute maximum', async () => {
+  const {clock,api,owner,taskId}=await setup();
+  let returned=false;
+  const pending=owner.waitForDecision(taskId,'parent',1000,undefined,'until_attention').then(value=>{returned=true;return value;});
+  await flush(); await clock.advance(150000); assert.equal(returned,false);
+  api.snapshots.set('child-1',snapshot('child-1',{status:'idle',terminal:'completed',result:{messageId:'final',text:'Done',outcome:'completed'}}));
+  await clock.advance(1000); assert.equal((await pending).event,'completed');
+  assert.equal(api.dispatches,1); assert.equal(api.notifications,0); assert.equal(api.aborts,0); assert.equal(clock.timers.length,0);
+});
+
+test('until_attention still returns promptly on questions, permissions, stall and unreachable observations', async () => {
+  for (const kind of ['question','permission','stall','unreachable']) {
+    const {clock,api,owner,taskId}=await setup(1500);
+    const pending=owner.waitForDecision(taskId,'parent',1000,undefined,'until_attention'); await flush();
+    if (kind==='question') api.snapshots.set('child-1',snapshot('child-1',{questionIds:['question_A']}));
+    if (kind==='permission') api.snapshots.set('child-1',snapshot('child-1',{permissionIds:['permission_A']}));
+    if (kind==='unreachable') api.snapshots.delete('child-1');
+    await clock.advance(kind==='stall'?2000:1000);
+    const result=await pending; assert.equal(result.event,'attention'); assert.equal(result.result,null);
+    assert.equal(result.health,kind==='question'?'waiting_question':kind==='permission'?'waiting_permission':kind==='stall'?'suspected_stall':'unreachable');
+    assert.equal(api.aborts,0); assert.equal(api.dispatches,1);
+  }
+});
+
+test('until_attention parent wait respects interruption without stopping the child', async () => {
+  const {api,owner,taskId}=await setup(), abort=new AbortController();
+  const pending=owner.waitForDecision(taskId,'parent',1000,abort.signal,'until_attention');
+  await flush(); abort.abort(new Error('operator paused')); await assert.rejects(pending,/operator paused/);
+  assert.equal(api.aborts,0); assert.equal(owner.status(taskId,'parent').phase,'active');
+});
+
 test('suspected stall returns once immediately, repeated waits are held until the next checkpoint', async () => {
   const { clock, api, owner, taskId } = await setup(1500);
   const first = owner.waitForDecision(taskId, 'parent', 10000);

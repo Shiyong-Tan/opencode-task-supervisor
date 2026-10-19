@@ -1,5 +1,23 @@
 # OpenCode Task Supervisor
 
+## Quiet waits (local changes, not yet released)
+
+`supervisor_dispatch`, `supervisor_wait` and `supervisor_process_wait` now default
+to `mode: "until_attention"`. A healthy wait stays inside the tool instead of
+returning every 30/60 seconds for another model decision. It returns on completion,
+permission/question attention, suspected stall, failed observation or other health
+changes that need review. Silence is suspicion, not proof of failure. There is no
+automatic process cancellation or retry. GUI observations continue independently.
+
+For intentional timed coordination, explicitly use `mode: "checkpoint"` with
+`waitMs` (task default 60000, range 1000-120000; process default 30000, range
+1000-60000). Supplying `waitMs` alone does not opt into checkpoints. Stopping a
+wait only aborts observation; it does not prove child/process termination.
+
+This reduces periodic model turns; initial dispatch and final/attention handling
+still use the configured models. Changes require a future plugin release and an
+idle service reload. No GUI version change or global configuration edit is needed.
+
 ## Persistent todo lists for OpenCode 2
 
 Available starting with Supervisor 0.1.12. Enable/update Supervisor in the GUI
@@ -29,7 +47,7 @@ labels are not compatibility allowlists. OpenCode 2 uses `plugins` entries with
 same task, cancellation, process ownership and observation policy.
 
 Native V2 registration preserves named agents, catalog-validated model/variant
-selection and inherited deny rules. Dispatch stays inline with bounded checkpoints;
+selection and inherited deny rules. Dispatch stays inline until completion or attention by default; bounded checkpoints are explicit;
 it does not automatically finalize the parent, wake it through a synthetic prompt,
 approve permissions or redispatch uncertain execution. Pending inbox items block
 cancellation safety even after an interrupt acknowledgement. Native event progress
@@ -77,7 +95,7 @@ OpenCode installs the package on startup. Restart OpenCode after changing the de
 ## Agent usage
 
 - Register a task with `supervisor_register`.
-- Dispatch it with `supervisor_dispatch({ taskId, agent: "reviewer", prompt, waitMs: 60000 })`.
+- Dispatch it with `supervisor_dispatch({ taskId, agent: "reviewer", prompt })`.
 - Continue monitoring the same task with `supervisor_wait`; inspect `supervisor_status` and `supervisor_result`.
 - A dispatch checkpoint is not task completion. Continue until a result or a clear blocker, rather than ending the parent turn after dispatch.
 - On Windows or Linux/WSL, use `supervisor_run` for long commands requiring process tracking; continue `supervisor_process_wait` for that execution ID.

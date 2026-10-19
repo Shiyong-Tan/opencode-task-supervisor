@@ -1,5 +1,14 @@
 # Recovery policy update
 
+2026-10-19: Quiet-wait policy. Public V1/V2 dispatch and wait tools default to
+until_attention: healthy sampling stays inside one tool invocation rather than
+returning routine model checkpoints. Explicit mode checkpoint retains timed
+coordination and existing persistent-stall recovery caps. Managed process waits
+use the same default. Completion, interactions, uncertainty and suspected stalls
+still return for review; interruption releases observation only. Core monitor
+retains its checkpoint default for existing internal callers; public adapters
+explicitly select the new policy. Validation: 171/171 controlled-clock tests, typecheck and build passed. No release, service restart or model call.
+
 2026-10-19: Process waits publish bounded progress titles from owned execution
 samples at entry and after each observation. Elapsed time uses execution start,
 not the current wait call; CPU and live counts require fresh complete evidence.

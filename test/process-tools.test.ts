@@ -90,10 +90,10 @@ test('registered processes block premature completion; CPU activity projects met
 
 test('wait checkpoint returns same execution; cancellation of wait does not stop execution', async () => {
   const x = await setup(), e = await x.start('run');
-  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, waitMs: 1000 }, x.ctx());
+  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, mode: 'checkpoint', waitMs: 1000 }, x.ctx());
   await flush(); await x.clock.advance(1000);
   assert.equal(JSON.parse(await wait).executionId, e.executionId); assert.equal(x.launches(), 1);
-  const abort = new AbortController(), interrupted = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, waitMs: 1000 }, { ...x.ctx(), abort: abort.signal });
+  const abort = new AbortController(), interrupted = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, mode: 'checkpoint', waitMs: 1000 }, { ...x.ctx(), abort: abort.signal });
   abort.abort(); await assert.rejects(interrupted);
   assert.equal(x.runtime.executions.status(e.executionId, 'ses_child').phase, 'running');
   x.task.attemptId = 'replaced'; await assert.rejects(x.runtime.tools.supervisor_process_status.execute({ executionId: e.executionId }, x.ctx()));
@@ -104,7 +104,7 @@ test('wait progress reports cumulative execution time and fresh metrics without 
   const x = await setup(), e = await x.start('run');
   await x.clock.advance(61000);
   const titles: string[] = [];
-  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, waitMs: 1000 },
+  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, mode: 'checkpoint', waitMs: 1000 },
     { ...x.ctx(), metadata: value => { if (value.title) titles.push(value.title); } });
   await flush();
   assert.match(titles[0]!, /Elapsed 1m 1s.*Observation uncertain/);
@@ -116,4 +116,38 @@ test('wait progress reports cumulative execution time and fresh metrics without 
   assert.ok(!processProgress({ ...value, health: 'unknown' }, x.clock.now()).includes('CPU'));
   assert.match(processProgress({ ...value, finishedAt: 62000, phase: 'stopped', health: 'stopped',
     sample: { ...value.sample!, exitCode: 0 } }, 62000), /Elapsed 1m 2s.*Exited 0/);
+});
+
+test('default process wait stays open beyond timed checkpoints and returns on completion', async () => {
+  const x = await setup(), e = await x.start('quiet-wait');
+  let returned = false;
+  const pending = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, waitMs: 1000 }, x.ctx())
+    .then(value => { returned = true; return JSON.parse(value); });
+  await flush();
+  x.set({ cpu100ns: '1200000000' }); await x.clock.advance(120000);
+  assert.equal(returned, false); assert.equal(x.launches(), 1);
+  x.set({ cpu100ns: '1200000000', rootExited: true, activeProcesses: 0, ownedProcessesStopped: true, exitCode: 0 });
+  await x.clock.advance(1000);
+  const result = await pending;
+  assert.equal(result.phase, 'stopped'); assert.equal(result.sample.exitCode, 0); assert.equal(result.executionId, e.executionId);
+});
+
+test('default process wait surfaces uncertain/quiet evidence for review without terminating or retrying', async () => {
+  for (const kind of ['unknown', 'suspect'] as const) {
+    const x = await setup(), e = await x.start('quiet-wait');
+    const pending = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, x.ctx());
+    await flush();
+    if (kind === 'unknown') x.set({ coverageUnknown: true });
+    await x.clock.advance(kind === 'suspect' ? 300000 : 1000);
+    const result = JSON.parse(await pending);
+    assert.equal(result.health, kind); assert.equal(result.phase, 'running'); assert.equal(result.safeToRetry, false);
+    assert.equal(x.launches(), 1); assert.equal(x.runtime.executions.status(e.executionId, 'ses_child').cancelRequested, false);
+  }
+});
+
+test('aborting an indefinite process wait only releases observation', async () => {
+  const x = await setup(), e = await x.start('quiet-wait'), abort = new AbortController();
+  const pending = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, {...x.ctx(), abort:abort.signal});
+  await flush(); abort.abort(new Error('operator paused')); await assert.rejects(pending, /operator paused/);
+  assert.equal(x.runtime.executions.status(e.executionId,'ses_child').phase,'running'); assert.equal(x.launches(),1);
 });
