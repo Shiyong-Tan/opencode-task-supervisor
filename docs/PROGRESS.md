@@ -159,3 +159,15 @@ The production GUI release resolver accepts the stable release for both families
 No model calls, global/workspace configuration edits or ordinary service restarts.
 GUI remains 6.0.0; existing notification identity edits remain excluded. Updating
 an already-running plugin still requires an idle service reload by its owner.
+
+Published stable v0.1.13: https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.13.
+Source 891b8293fdb7805dbed831264577e7cdcb01fc45; compiled Git distribution
+8fd12be2c2295d89f786f2cc627ee4b05e927d16 (package-v0.1.13).
+Archive SHA256 4bbc30c48f027de0d10fa516d7beb4edd442dbca77a3868a43ba8af279d26b60
+matches a fresh release download. Clean-source typecheck, 171/171 controlled-clock
+tests and build passed. Fresh actual GitHub archive installation on Windows
+OpenCode 1.18.31 and Git installation on 2.0.31 passed authenticated lease/snapshot
+checks with plugin 0.1.13. GitHub latest now points to v0.1.13 and the GUI production
+resolver accepts its protocol manifest for both families. Model calls: zero.
+No global/workspace configuration changes or ordinary service restarts. Existing
+notification identity edits remain excluded; GUI remains 6.0.0.
