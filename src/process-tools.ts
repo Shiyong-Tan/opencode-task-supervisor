@@ -9,6 +9,7 @@ import { supportsProcessTracking, linuxHelperRuntime } from './platform-capabili
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { processEnvironment } from './process-environment.ts';
+import { processProgress } from './process-progress.ts';
 
 export const processGuidance = `\n\nProcess tracking for this supervised task:
 Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Optional env supplies per-process environment overrides (for example TMP, TEMP and TMPDIR set to an existing project-local directory). Overrides are inherited by descendants; they do not enforce filesystem containment. Command and environment permission is checked before launch.
@@ -102,9 +103,11 @@ export async function processTools(supervisor: Supervisor, directory: string,
           if (!Number.isFinite(waitMs) || waitMs < 1000 || waitMs > 60000) throw new Error('Invalid wait duration');
           const deadline = supervisor.clock.now() + waitMs;
           let value = executions.status(args.executionId, ctx.sessionID);
+          ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
           while (pending(value) && value.health === 'running' && supervisor.clock.now() < deadline) {
             await supervisor.clock.sleep(Math.min(1000, deadline - supervisor.clock.now()), ctx.abort);
             value = await executions.observe(args.executionId, ctx.sessionID);
+            ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
           }
           return JSON.stringify(value);
         },

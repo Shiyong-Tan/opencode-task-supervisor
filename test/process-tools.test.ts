@@ -5,6 +5,7 @@ import { Supervisor } from '../src/supervisor.ts';
 import { FakeApi, FakeClock, flush, snapshot } from './helpers.ts';
 import type { JobSample } from '../src/job-client.ts';
 import { ViewProjection } from '../src/view-projection.ts';
+import { processProgress } from '../src/process-progress.ts';
 
 async function setup() {
   const clock = new FakeClock(), api = new FakeApi(), supervisor = new Supervisor(api, clock);
@@ -97,4 +98,22 @@ test('wait checkpoint returns same execution; cancellation of wait does not stop
   assert.equal(x.runtime.executions.status(e.executionId, 'ses_child').phase, 'running');
   x.task.attemptId = 'replaced'; await assert.rejects(x.runtime.tools.supervisor_process_status.execute({ executionId: e.executionId }, x.ctx()));
   assert.match(processGuidance, /Never finalize/); assert.match(processGuidance, /ordinary shell processes are not tracked/);
+});
+
+test('wait progress reports cumulative execution time and fresh metrics without private output', async () => {
+  const x = await setup(), e = await x.start('run');
+  await x.clock.advance(61000);
+  const titles: string[] = [];
+  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId, waitMs: 1000 },
+    { ...x.ctx(), metadata: value => { if (value.title) titles.push(value.title); } });
+  await flush();
+  assert.match(titles[0]!, /Elapsed 1m 1s.*Observation uncertain/);
+  x.set({ cpu100ns: '620000000' }); await x.clock.advance(1000); await wait;
+  assert.match(titles.at(-1)!, /Elapsed 1m 2s.*CPU 100.0%.*1 live processes/);
+  assert.ok(!JSON.stringify(titles).includes('private output'));
+  const value = x.runtime.executions.status(e.executionId, 'ses_child');
+  assert.match(processProgress({ ...value, health: 'unknown' }, x.clock.now()), /Observation uncertain/);
+  assert.ok(!processProgress({ ...value, health: 'unknown' }, x.clock.now()).includes('CPU'));
+  assert.match(processProgress({ ...value, finishedAt: 62000, phase: 'stopped', health: 'stopped',
+    sample: { ...value.sample!, exitCode: 0 } }, 62000), /Elapsed 1m 2s.*Exited 0/);
 });
