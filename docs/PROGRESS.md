@@ -1,5 +1,12 @@
 # Recovery policy update
 
+2026-10-19: Prepare stable 0.1.13 with quiet waits and observed process metrics.
+Release is built from a clean Git archive, excluding the existing unstaged
+notification identity file. GUI stays 6.0.0; no configuration change, ordinary
+service restart or model invocation. Windows V1/V2 installation will be checked
+in isolated profiles before stable promotion.
+
+
 2026-10-19: Quiet-wait policy. Public V1/V2 dispatch and wait tools default to
 until_attention: healthy sampling stays inside one tool invocation rather than
 returning routine model checkpoints. Explicit mode checkpoint retains timed

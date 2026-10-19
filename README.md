@@ -1,6 +1,6 @@
 # OpenCode Task Supervisor
 
-## Quiet waits (local changes, not yet released)
+## Quiet waits (Supervisor 0.1.13)
 
 `supervisor_dispatch`, `supervisor_wait` and `supervisor_process_wait` now default
 to `mode: "until_attention"`. A healthy wait stays inside the tool instead of
@@ -15,7 +15,7 @@ For intentional timed coordination, explicitly use `mode: "checkpoint"` with
 wait only aborts observation; it does not prove child/process termination.
 
 This reduces periodic model turns; initial dispatch and final/attention handling
-still use the configured models. Changes require a future plugin release and an
+still use the configured models. Update the plugin to 0.1.13 or later and perform an
 idle service reload. No GUI version change or global configuration edit is needed.
 
 ## Persistent todo lists for OpenCode 2
