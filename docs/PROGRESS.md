@@ -171,3 +171,16 @@ checks with plugin 0.1.13. GitHub latest now points to v0.1.13 and the GUI produ
 resolver accepts its protocol manifest for both families. Model calls: zero.
 No global/workspace configuration changes or ordinary service restarts. Existing
 notification identity edits remain excluded; GUI remains 6.0.0.
+# Process review deadlines (local implementation, 2026-10-19)
+
+- Add optional launch estimate/basis, inspection interval and expected progress.
+  Existing callers receive a ten-minute review; first review is the earlier of
+  estimate and requested check. Normal sampling remains internal.
+- A due review returns the current execution as suspect even with ongoing activity;
+  managed suspect evidence also reaches parent task observation. Read probes and
+  sub-second accumulated polling CPU no longer continuously reset activity.
+- Explicit owner-scoped review extension records a reason/count/deadline, preserves
+  actual last activity and requires fresh non-unknown execution evidence. It cannot
+  restart, resume, cancel or certify retry safety. No automatic recovery is added.
+- Validation uses fake clocks/transport fixtures, not model calls or live job control.
+  No version change, publication or ordinary service restart is part of this change.

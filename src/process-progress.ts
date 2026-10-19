@@ -13,7 +13,7 @@ export function processProgress(value: Execution, now: number): string {
   else {
     if (value.cpuPercent !== undefined && Number.isFinite(value.cpuPercent)) parts.push(`CPU ${value.cpuPercent.toFixed(1)}%`);
     if (value.sample) parts.push(`${value.sample.activeProcesses} live processes`);
-    if (value.health === 'suspect') parts.push('Quiet');
+    if (value.health === 'suspect') parts.push(value.review?.needed ? 'Review due' : 'No useful progress');
   }
   return parts.join(' · ');
 }

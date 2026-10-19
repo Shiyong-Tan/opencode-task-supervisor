@@ -1,5 +1,32 @@
 # OpenCode Task Supervisor
 
+## Process review deadlines
+
+Before `supervisor_run`, estimate duration from prior runs or workload when possible.
+Supply `estimatedDurationMs` with `estimateReason`, `checkAfterMs` for the first
+inspection, and `progressExpectation` describing expected output/checkpoints.
+Unknown estimates are allowed: explain the uncertainty and choose a bounded check.
+Existing callers get a ten-minute checkpoint; the first deadline is the earlier
+of the estimate and the requested check (default ten minutes). Intervals are
+1 second to 24 hours. This is a review deadline, never a termination timeout.
+
+Healthy sampling stays internal. `supervisor_process_wait` returns `health:
+"suspect"` with `review.needed` at the deadline even if CPU/output remains active.
+Five minutes without useful CPU/write/output activity also requires review.
+Read counters and tiny polling CPU alone do not establish useful activity; CPU
+accumulates until at least one CPU-second, while output/write growth counts as
+activity. These signals do not prove business progress. No files are scanned or
+inferred as progress; the agent inspects task-specific evidence named in its plan.
+
+After an alert, inspect the original execution and task evidence. If bounded waiting
+is justified, call `supervisor_process_review({ executionId, checkAfterMs, reason })`.
+The reason must describe the inspection and evidence; it is recorded, not mechanically
+verified. Repeated waits do not acknowledge an alert. An explicit extension defers
+the next review without changing `lastActivityAt`, restarting, resuming or cancelling
+anything. Unknown observations and cancelled/stopped executions cannot be extended.
+The parent task also surfaces `suspected_stall` when managed execution needs review.
+No automatic kill/retry or additional model request is issued by sampling.
+
 ## Quiet waits (Supervisor 0.1.13)
 
 `supervisor_dispatch`, `supervisor_wait` and `supervisor_process_wait` now default

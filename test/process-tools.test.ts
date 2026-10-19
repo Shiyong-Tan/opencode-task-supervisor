@@ -27,8 +27,8 @@ async function setup() {
   const permissions: unknown[] = [];
   const ctx = (sessionID = 'ses_child') => ({ sessionID, messageID: 'message_1', agent: 'coder', directory: process.cwd(), worktree: process.cwd(),
     abort: new AbortController().signal, metadata() {}, async ask(request: unknown) { permissions.push(request); if (denied) throw Error('denied'); } });
-  const start = async (callId: string, sessionID = 'ses_child', env?: Record<string, string>) => {
-    const args = { executable: process.execPath, args: ['-e', '/* no actual launch */'], cwd: process.cwd(), ...(env ? { env } : {}) };
+  const start = async (callId: string, sessionID = 'ses_child', env?: Record<string, string>, plan: import('../src/process-review.ts').ProcessReviewPlan = {}) => {
+    const args = { executable: process.execPath, args: ['-e', '/* no actual launch */'], cwd: process.cwd(), ...(env ? { env } : {}), ...plan };
     runtime.before({ tool: 'supervisor_run', sessionID, callID: callId }, { args });
     return JSON.parse(await runtime.tools.supervisor_run.execute(args, ctx(sessionID)));
   };
@@ -143,6 +143,71 @@ test('default process wait surfaces uncertain/quiet evidence for review without 
     assert.equal(result.health, kind); assert.equal(result.phase, 'running'); assert.equal(result.safeToRetry, false);
     assert.equal(x.launches(), 1); assert.equal(x.runtime.executions.status(e.executionId, 'ses_child').cancelRequested, false);
   }
+});
+
+test('estimated inspection deadline returns despite useful CPU and blind waits cannot acknowledge it', async () => {
+  const x = await setup(), e = await x.start('deadline', 'ses_child', undefined, {
+    estimatedDurationMs: 2000, estimateReason: 'Prior fixture took two seconds', progressExpectation: 'Expect a completion receipt' });
+  const wait = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, x.ctx());
+  await flush(); x.set({ cpu100ns: '20000000' }); await x.clock.advance(2000);
+  const alert = JSON.parse(await wait);
+  assert.equal(alert.review.needed, true); assert.equal(alert.health, 'suspect');
+  assert.equal(alert.phase, 'running'); assert.equal(alert.safeToRetry, false);
+  const repeat = JSON.parse(await x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, x.ctx()));
+  assert.equal(repeat.review.dueAt, 2000); assert.equal(repeat.review.count, 0);
+  assert.equal(x.launches(), 1); assert.equal(alert.cancelRequested, false);
+  x.api.snapshots.set('ses_child', snapshot('ses_child', { process: 'active' }));
+  await x.supervisor.observe(x.task.taskId, 'ses_parent');
+  assert.equal(x.task.health, 'suspected_stall');
+  const reviewed = JSON.parse(await x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId,
+    checkAfterMs: 3000, reason: 'Inspected output: checkpoint reached; allow bounded completion' }, x.ctx()));
+  assert.equal(reviewed.review.count, 1); assert.equal(reviewed.review.dueAt, 5000);
+  assert.equal(reviewed.lastActivityAt, alert.lastActivityAt);
+  const next = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, x.ctx());
+  await flush(); await x.clock.advance(3000);
+  assert.equal(JSON.parse(await next).review.needed, true);
+  assert.ok(!JSON.stringify(x.commands).includes('estimateReason'));
+});
+
+test('read probes and tiny CPU ticks do not indefinitely hide an inactive process', async () => {
+  const x = await setup(), e = await x.start('read-poll');
+  for (let i = 1; i <= 5; i++) {
+    x.set({ cpu100ns: String(i * 1000), readBytes: String(i * 100000) });
+    await x.clock.advance(60000); await x.runtime.tick();
+  }
+  const result = x.runtime.executions.status(e.executionId, 'ses_child');
+  assert.equal(result.health, 'suspect'); assert.equal(result.lastActivityAt, 0);
+  assert.equal(result.cancelRequested, false);
+  const extension = JSON.parse(await x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId,
+    checkAfterMs: 2000, reason: 'Confirmed an intentional two-second external wait' }, x.ctx()));
+  assert.equal(extension.lastActivityAt, 0);
+  await x.clock.advance(2000); await x.runtime.tick();
+  assert.equal(x.runtime.executions.status(e.executionId, 'ses_child').health, 'suspect');
+});
+
+test('unknown estimate defaults to ten-minute review even with continuous output', async () => {
+  const x = await setup(), e = await x.start('default-deadline');
+  assert.equal(e.review.dueAt, 600000);
+  const pending = x.runtime.tools.supervisor_process_wait.execute({ executionId: e.executionId }, x.ctx());
+  await flush();
+  x.set({ stdout: { text: 'heartbeat', totalBytes: 99, retainedBytes: 9, truncated: false } });
+  await x.clock.advance(600000);
+  const alert = JSON.parse(await pending);
+  assert.equal(alert.review.needed, true); assert.equal(alert.lastActivityAt, 600000);
+  assert.equal(alert.phase, 'running'); assert.equal(x.launches(), 1);
+});
+
+test('review validation and owner fences never launch or release another process', async () => {
+  const x = await setup();
+  await assert.rejects(x.start('bad-estimate', 'ses_child', undefined, { estimatedDurationMs: 2000 }), /estimateReason/);
+  assert.equal(x.launches(), 0);
+  const e = await x.start('valid');
+  await assert.rejects(x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId, checkAfterMs: 0, reason: 'x' }, x.ctx()), /interval/);
+  await assert.rejects(x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId, checkAfterMs: 2000, reason: ' ' }, x.ctx()), /explanation/);
+  await assert.rejects(x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId, checkAfterMs: 2000, reason: 'x' }, x.ctx('ses_foreign')), /owned/);
+  x.set({ coverageUnknown: true });
+  await assert.rejects(x.runtime.tools.supervisor_process_review.execute({ executionId: e.executionId, checkAfterMs: 2000, reason: 'x' }, x.ctx()), /uncertain/);
+  assert.equal(x.launches(), 1);
 });
 
 test('aborting an indefinite process wait only releases observation', async () => {

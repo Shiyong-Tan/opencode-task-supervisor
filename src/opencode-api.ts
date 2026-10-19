@@ -104,7 +104,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
   });
   const permissionIds = permissions.filter(p => p.state !== 'expired').map(p => p.requestId);
   const untrackedExecutionPossible = observedTools.some(name =>
-    !['read', 'glob', 'grep', 'list', 'todowrite', 'todoread', 'question', 'supervisor_run', 'supervisor_process_status', 'supervisor_process_wait'].includes(name));
+    !['read', 'glob', 'grep', 'list', 'todowrite', 'todoread', 'question', 'supervisor_run', 'supervisor_process_status', 'supervisor_process_wait', 'supervisor_process_review'].includes(name));
   // Even completed native commands may leave descendants; never infer safety from tool completion.
   const registeredExecution = observedTools.includes('supervisor_run');
   return { untrackedExecutionPossible, executionStopConfirmed: !untrackedExecutionPossible && !registeredExecution,

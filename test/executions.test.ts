@@ -49,8 +49,8 @@ test('successful polling is not activity; quiet sleep becomes suspect without ca
   const x = setup(), e = await x.start(); await x.clock.advance(101);
   const quiet = await x.executions.observe(e.executionId, 'parent');
   assert.equal(quiet.lastActivityAt, 0); assert.equal(quiet.health, 'suspect'); assert.equal(x.cancellations(), 0);
-  x.set({ cpu100ns: '100' }); const active = await x.executions.observe(e.executionId, 'child');
-  assert.equal(active.cpuDelta100ns, '100'); assert.equal(active.health, 'running');
+  x.set({ cpu100ns: '10000000' }); const active = await x.executions.observe(e.executionId, 'child');
+  assert.equal(active.cpuDelta100ns, '10000000'); assert.equal(active.health, 'running');
 });
 test('PID creation-time mismatch and query denial produce unknown, never stop or safeToRetry', async () => {
   const x = setup(), e = await x.start(); x.set({ rootCreationFileTime: '999', rootExited: true, activeProcesses: 0, ownedProcessesStopped: true });

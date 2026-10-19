@@ -10,6 +10,7 @@ export interface TaskResult {
   sourceEventId?: string;
 }
 export interface Snapshot {
+  processReviewNeeded?: boolean;
   /** Explicit adapter evidence; absence never means process safety. */
   untrackedExecutionPossible?: boolean;
   executionStopConfirmed?: boolean;

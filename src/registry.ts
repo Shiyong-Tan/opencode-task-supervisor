@@ -65,6 +65,7 @@ export class Registry {
       return;
     }
     if (snapshot.questionIds?.length) { task.health = 'waiting_question'; task.reason = 'Child is waiting for user answers in the GUI question card'; return; }
+    if (snapshot.processReviewNeeded) { task.health = 'suspected_stall'; task.reason = 'Managed process requires review: inspect its estimate deadline, activity and expected progress before extending or recovering'; return; }
     if (snapshot.process === 'active') { task.health = 'running'; return; }
     if (this.clock.now() - task.lastProgressAt >= this.staleMs) {
       task.health = 'suspected_stall';

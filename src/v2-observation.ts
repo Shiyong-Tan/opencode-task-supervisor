@@ -17,7 +17,7 @@ const text = (value: unknown): string => {
 };
 const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const readonlyTools = new Set(['read', 'glob', 'grep', 'list', 'todo', 'todowrite', 'todoread', 'question', 'form',
-  'supervisor_process_status', 'supervisor_process_wait']);
+  'supervisor_process_status', 'supervisor_process_wait', 'supervisor_process_review']);
 
 /** Project a complete ascending native V2 transcript. No clock or polling timestamp is progress.
  * The caller must finish pagination; a partial page is not a terminal observation. */

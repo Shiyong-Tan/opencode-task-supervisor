@@ -11,7 +11,7 @@ export class Supervisor {
   private readonly dispatches = new Map<string, Promise<void>>();
   private readonly observations = new Map<string, Promise<void>>();
   private readonly failures = new Map<string, { attemptId: string; eventId: string; name: string }>();
-  processEvidence?: (id: Identity) => { process: Snapshot['process']; processActivity?: string; pending: boolean; permission: boolean; stopped?: boolean } | undefined;
+  processEvidence?: (id: Identity) => { process: Snapshot['process']; processActivity?: string; pending: boolean; permission: boolean; stopped?: boolean; reviewNeeded?: boolean } | undefined;
   constructor(readonly api: Api, readonly clock: Clock, readonly requestMs = 5000, staleMs = 300_000) {
     this.registry = new Registry(clock, staleMs);
   }
@@ -59,6 +59,7 @@ export class Supervisor {
         if (process) {
           snapshot.executionStopConfirmed = process.stopped === true && snapshot.untrackedExecutionPossible === false;
           snapshot.process = process.process; snapshot.processActivity = process.processActivity;
+          snapshot.processReviewNeeded = process.reviewNeeded;
           if (process.pending) { snapshot.pendingTools++; snapshot.terminal = undefined; snapshot.result = undefined; }
           if (process.permission) snapshot.permissionIds.push('managed-command-permission');
         }

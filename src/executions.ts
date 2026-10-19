@@ -4,9 +4,11 @@ import type { Clock, Identity } from './types.ts';
 import type { Registry } from './registry.ts';
 import type { JobSample, JobTransport } from './job-client.ts';
 import { bounded } from './clock.ts';
+import { reviewPlan, reviewDelay, reviewText, usefulActivity, type ProcessReview, type ProcessReviewPlan } from './process-review.ts';
 
 export interface ExecutionIdentity extends Identity { childSessionId: string; executionId: string; toolCallId: string }
 export interface Execution extends ExecutionIdentity {
+  review?: ProcessReview;
   displayName?: string; startedAt?: number; finishedAt?: number; cpuPercent?: number;
   phase: 'waiting_permission' | 'starting' | 'running' | 'stopped' | 'start_failed' | 'permission_denied';
   health: 'waiting_permission' | 'running' | 'suspect' | 'unknown' | 'stopped';
@@ -15,7 +17,7 @@ export interface Execution extends ExecutionIdentity {
   reason?: string; cancelRequested: boolean; cancelOutcomeUnknown: boolean;
   artifactPaths: string[]; safeToRetry: false;
 }
-type Entry = { view: Execution; transport?: JobTransport; poll?: Promise<Execution>; cancel?: Promise<Execution>; generation: number };
+type Entry = { view: Execution; quietReviewedUntil?: number; progressBaseline?: JobSample; transport?: JobTransport; poll?: Promise<Execution>; cancel?: Promise<Execution>; generation: number };
 export class Executions {
   private readonly entries = new Map<string, Entry>();
   private disposed = false;
@@ -32,7 +34,7 @@ export class Executions {
   private copy(entry: Entry): Execution { return structuredClone(entry.view); }
   all(): Execution[] { return [...this.entries.values()].map(e => this.copy(e)); }
   status(id: string, session: string): Execution { return this.copy(this.owned(id, session)); }
-  async start(childSessionId: string, toolCallId: string, command: { executable: string; args: string[]; cwd: string; env?: Record<string, string>; artifactPaths: string[] },
+  async start(childSessionId: string, toolCallId: string, command: { executable: string; args: string[]; cwd: string; env?: Record<string, string>; artifactPaths: string[]; reviewPlan?: ProcessReviewPlan },
     permission: () => Promise<void>, abort?: AbortSignal): Promise<Execution> {
     if (this.disposed || !toolCallId) throw new Error('Execution owner unavailable');
     const tasks = this.registry.all().filter(t => t.childSessionId === childSessionId && t.phase !== 'terminal');
@@ -42,7 +44,8 @@ export class Executions {
     const duplicate = [...this.entries.values()].find(e => e.view.childSessionId === childSessionId && e.view.toolCallId === toolCallId);
     if (duplicate) return this.copy(duplicate);
     if (!this.multiple && [...this.entries.values()].some(e => e.view.taskId === task.taskId)) throw new Error('One execution per logical task; recovery is not enabled');
-    const view: Execution = { taskId: task.taskId, attemptId: task.attemptId, parentSessionId: task.parentSessionId,
+    const plan = command.reviewPlan === undefined ? undefined : reviewPlan(command.reviewPlan, this.clock.now());
+    const view: Execution = { review: plan, taskId: task.taskId, attemptId: task.attemptId, parentSessionId: task.parentSessionId,
       childSessionId, executionId: randomUUID(), toolCallId, phase: 'waiting_permission', health: 'waiting_permission',
       createdAt: this.clock.now(), lastActivityAt: this.clock.now(), artifactPaths: [...command.artifactPaths],
       displayName: basename(command.executable).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 180) || 'Process',
@@ -54,9 +57,11 @@ export class Executions {
       view.phase = 'start_failed'; view.health = 'unknown'; view.reason = 'Task no longer permits launch; no process started'; return this.copy(entry);
     }
     view.phase = 'starting'; view.health = 'unknown'; view.startedAt = this.clock.now();
+    if (view.review && command.reviewPlan) view.review = reviewPlan(command.reviewPlan, view.startedAt);
     try {
       entry.transport = this.factory(view.executionId);
-      const sample = await bounded(this.clock, 5000, () => entry.transport!.call('start', command), abort);
+      const { reviewPlan: _plan, ...launch } = command;
+      const sample = await bounded(this.clock, 5000, () => entry.transport!.call('start', launch), abort);
       if (!this.current(entry)) { await entry.transport.close(); return this.copy(entry); }
       this.apply(entry, sample);
       if (entry.view.phase === 'stopped') await entry.transport.close();
@@ -83,14 +88,30 @@ export class Executions {
     const interval = v.lastObservedAt === undefined ? 0 : this.clock.now() - v.lastObservedAt;
     v.cpuPercent = previous && interval > 0 && !sample.coverageUnknown ? Number(deltas[0]) / (interval * 100) : undefined;
     v.cpuDelta100ns = deltas[0]!.toString(); v.readDeltaBytes = deltas[1]!.toString(); v.writeDeltaBytes = deltas[2]!.toString();
-    const outputActivity = previous && (sample.stdout.totalBytes > previous.stdout.totalBytes || sample.stderr.totalBytes > previous.stderr.totalBytes);
-    if (!sample.coverageUnknown && (deltas.some(d => d > 0n) || outputActivity)) v.lastActivityAt = this.clock.now();
+    if (!entry.progressBaseline) entry.progressBaseline = structuredClone(sample);
+    if (!sample.coverageUnknown && usefulActivity(sample, entry.progressBaseline)) {
+      v.lastActivityAt = this.clock.now(); entry.progressBaseline = structuredClone(sample);
+    }
+    if (v.review) v.review.needed = this.clock.now() >= v.review.dueAt;
     v.sample = structuredClone(sample); v.lastObservedAt = this.clock.now();
     v.cancelOutcomeUnknown = v.cancelRequested && (!sample.ownedProcessesStopped || sample.coverageUnknown);
     if (sample.ownedProcessesStopped && !sample.coverageUnknown) { v.phase = 'stopped'; v.health = 'stopped'; v.reason = undefined; v.finishedAt = this.clock.now(); }
     else if (sample.coverageUnknown) { v.phase = 'running'; v.health = 'unknown'; v.reason = 'Job member observation incomplete'; }
-    else { v.phase = 'running'; v.health = this.clock.now() - v.lastActivityAt >= this.suspectMs ? 'suspect' : 'running';
-      v.reason = v.health === 'suspect' ? 'No new CPU/I/O/output activity; sleep/GPU/I/O wait may be valid. No automatic cancellation.' : undefined; }
+    else { v.phase = 'running'; v.health = v.review?.needed || (this.clock.now() - v.lastActivityAt >= this.suspectMs && this.clock.now() >= (entry.quietReviewedUntil ?? 0)) ? 'suspect' : 'running';
+      v.reason = v.review?.needed ? 'Scheduled process review due. Inspect expected progress now; justify a bounded extension or decide recovery. Do not blindly wait again.' :
+        v.health === 'suspect' ? 'No useful CPU/write/output activity; read probes and tiny polling CPU do not establish progress. Inspect waiting/input/locks; no automatic cancellation.' : undefined; }
+  }
+  async extendReview(id: string, session: string, afterMs: number, reason: string): Promise<Execution> {
+    const delay = reviewDelay(afterMs), decision = reviewText(reason);
+    await this.observe(id, session);
+    const entry = this.owned(id, session), v = entry.view;
+    if (v.phase !== 'running' || v.health === 'unknown' || v.cancelRequested) throw new Error('Cannot extend an uncertain, cancelled or stopped execution');
+    if (!v.review) throw new Error('Execution has no review plan');
+    v.review.dueAt = this.clock.now() + delay; v.review.count++; v.review.lastDecision = decision; v.review.needed = false;
+    // A bounded reviewed wait does not change the actual last activity timestamp.
+    entry.quietReviewedUntil = v.review.dueAt;
+    v.health = 'running'; v.reason = 'Bounded wait explicitly reviewed; see review.lastDecision';
+    return this.copy(entry);
   }
   private unknown(entry: Entry, reason: string) {
     if (!this.current(entry) || entry.view.phase === 'stopped') return;
