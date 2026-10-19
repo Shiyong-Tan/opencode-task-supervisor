@@ -6,7 +6,7 @@ not the current wait call; CPU and live counts require fresh complete evidence.
 Unknown/stale observations are explicit. No commands/output/environment values,
 extra model calls, process mutation or automatic service reload is introduced.
 GUI forwards this title to the existing call-keyed subagent display. This source
-change is local and unversioned; publishing/reloading the plugin is still required. Validation: 164/164 controlled-clock tests, typecheck and build passed; no model calls.
+change is local and unversioned; publishing/reloading the plugin is still required. Validation: 165/165 controlled-clock tests, typecheck and build passed; no model calls. Both protocol activity fingerprints exclude only process-wait presentation titles, preserving real state/input/output/other metadata evidence so ticking clocks cannot mask stalls.
 
 2026-10-16: Prepare 0.1.6 dual-protocol release. Windows real 2.0.24 acceptance
 with openai/gpt-6-luna verifies one registered reviewer child, supervisor_dispatch,

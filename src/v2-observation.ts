@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PermissionEvidence, Snapshot, TaskResult } from './types.ts';
+import { withoutProcessWaitPresentation } from './process-progress-observation.ts';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => {
@@ -37,7 +38,9 @@ export function snapshotFromV2(sessionId: string, messagesValue: unknown, active
     const message = record(value), id = text(message.id), kind = text(message.type), time = record(message.time);
     if (!/^msg_[A-Za-z0-9_-]+$/.test(id) || seen.has(id) || typeof time.created !== 'number' || !Number.isFinite(time.created))
       throw new Error('Invalid V2 transcript identity');
-    seen.add(id); messageIds.push(id); activity.push(fingerprint(message));
+    seen.add(id); messageIds.push(id); activity.push(fingerprint(kind === 'assistant' ? {
+      ...message, content: list(message.content).map(record).map(withoutProcessWaitPresentation),
+    } : message));
     if (kind === 'user' || kind === 'synthetic') { lastIdle = undefined; lastAssistant = undefined; }
     if (kind === 'assistant') {
       lastIdle = undefined; lastAssistant = message;
@@ -54,7 +57,7 @@ export function snapshotFromV2(sessionId: string, messagesValue: unknown, active
           if (toolStatus === 'streaming' || toolStatus === 'running') pendingTools++;
           if (name === 'supervisor_run') registeredExecution = true;
           else if (!readonlyTools.has(name)) untrackedExecutionPossible = true;
-          output.push(part);
+          output.push(withoutProcessWaitPresentation(part));
         } else {
           // Unknown content is never evidence that execution coverage is complete.
           untrackedExecutionPossible = true;

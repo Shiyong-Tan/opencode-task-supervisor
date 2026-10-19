@@ -1,5 +1,6 @@
 import { parseOpenCodeVersion, type OpenCodeVersion } from './opencode-version.ts';
 import { createHash } from 'node:crypto';
+import { withoutProcessWaitPresentation } from './process-progress-observation.ts';
 import type { AgentDispatch } from './agent-dispatch.ts';
 import type { Api, Snapshot, TaskResult } from './types.ts';
 
@@ -53,7 +54,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
       throw new Error('Incompatible OpenCode message metadata');
     if (info.sessionID !== sessionId) throw new Error('Cross-session message response');
     if (typeof info.id === 'string') messageIds.push(info.id);
-    const key = fingerprint({ info, parts });
+    const key = fingerprint({ info, parts: parts.map(withoutProcessWaitPresentation) });
     activity.push(key);
     const created = Number(time.created);
     if (info.role === 'user') latestUserCreated = Math.max(latestUserCreated, created);
@@ -61,7 +62,7 @@ export function snapshotFrom(sessionId: string, messagesValue: unknown, statuses
       latestAssistantCreated = Math.max(latestAssistantCreated, created);
       // Empty assistant placeholders and user notification messages are not recovery evidence.
       const output = parts.filter(p => (['text', 'reasoning'].includes(String(p.type)) && typeof p.text === 'string' && p.text.length > 0) || p.type === 'tool');
-      if (output.length) assistantActivity.push(fingerprint({ id: info.id, output }));
+      if (output.length) assistantActivity.push(fingerprint({ id: info.id, output: output.map(withoutProcessWaitPresentation) }));
       if (time.completed && (info.error || ['stop', 'end_turn'].includes(String(info.finish))) && created >= terminalCreated) {
         terminalCreated = created;
         terminal = info.error ? 'failed' : 'completed';
