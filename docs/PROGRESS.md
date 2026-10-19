@@ -124,3 +124,14 @@ Publish the session-owned native todo tools from 55986a3. GUI stays at 6.0.0.
 The release is built from a clean Git archive, excluding the user's unstaged
 src/notification-identity-protocol.ts. No ordinary service/configuration change
 or model request is authorized by this release task.
+
+Published stable v0.1.12: https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.12.
+Source 731ebde; compiled distribution f22cb8d65db492272590d1930c015d1a108df526.
+Archive SHA256 c87e0fb1f15b57cd0fc4bdf74a694083a8d66196decb9608d0b8414894da4c26
+matches a fresh GitHub download. Clean-source 163/163 tests, typecheck and build
+passed. Actual fresh remote archive install on Windows OpenCode 1.18.31 and Git
+install on 2.0.31 both passed authenticated lease/snapshot with plugin 0.1.12.
+The production GUI release resolver accepts the stable release for both families.
+No model calls, global/workspace configuration edits or ordinary service restarts.
+GUI remains 6.0.0; existing notification identity edits remain excluded. Updating
+an already-running plugin still requires an idle service reload by its owner.
