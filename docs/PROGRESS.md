@@ -184,3 +184,13 @@ notification identity edits remain excluded; GUI remains 6.0.0.
   restart, resume, cancel or certify retry safety. No automatic recovery is added.
 - Validation uses fake clocks/transport fixtures, not model calls or live job control.
   No version change, publication or ordinary service restart is part of this change.
+
+Published stable v0.1.14: https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.14.
+Source ab00447; compiled Git distribution 1899ab8ed363e8a1c2b2135ab4982c9142892145
+(package-v0.1.14). Clean-source typecheck, 177/177 tests and package build passed.
+Archive SHA256 a715555ebf6bcb1ba87d2c05cd8356cbc65616835e4464fb29fec3d452aaa83c
+and protocol manifest checksum match fresh GitHub downloads. GitHub latest
+confirmed stable v0.1.14. Source main and both tags pushed; user unstaged
+notification identity edits excluded. GUI stays 6.0.0. No model calls, ordinary
+service restart or configuration changes. Live remote-install acceptance was not
+repeated for this release; Linux/macOS runtime acceptance remains unperformed.
