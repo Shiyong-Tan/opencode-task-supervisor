@@ -2,6 +2,11 @@
 
 ## Persistent todo lists for OpenCode 2
 
+Available starting with Supervisor 0.1.12. Enable/update Supervisor in the GUI
+after active work finishes so OpenCode loads the new plugin. GUI 6.0.0 already
+supports these tools and does not need another version change. For multi-step
+work, agents should read the current list, then write it as work progresses.
+
 `supervisor_todo_read({})` reads the calling session's list and revision.
 `supervisor_todo_write({ expectedRevision, items })` replaces it atomically; read
 first and preserve each item's stable `id`. Items have `content` (up to 500

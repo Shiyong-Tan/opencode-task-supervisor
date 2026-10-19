@@ -117,3 +117,10 @@ restores saved state after reconnect. No service restart or model call is used.
 Local validation covers persistence, isolation, stale concurrent writes, clearing,
 malformed storage, registration and GUI projection. Release publication remains
 separate; version labels are unchanged for this local implementation.
+
+# Release 0.1.12 — 2026-10-19
+
+Publish the session-owned native todo tools from 55986a3. GUI stays at 6.0.0.
+The release is built from a clean Git archive, excluding the user's unstaged
+src/notification-identity-protocol.ts. No ordinary service/configuration change
+or model request is authorized by this release task.
