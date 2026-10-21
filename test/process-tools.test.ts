@@ -216,3 +216,14 @@ test('aborting an indefinite process wait only releases observation', async () =
   await flush(); abort.abort(new Error('operator paused')); await assert.rejects(pending, /operator paused/);
   assert.equal(x.runtime.executions.status(e.executionId,'ses_child').phase,'running'); assert.equal(x.launches(),1);
 });
+
+for (const exitCode of [0, 1]) test(`fresh status recovers uncertain coverage without relaunch (exit ${exitCode})`, async () => {
+  const x = await setup(), e = await x.start('recover');
+  x.set({ coverageUnknown: true });
+  const uncertain = JSON.parse(await x.runtime.tools.supervisor_process_status.execute({ executionId: e.executionId }, x.ctx()));
+  assert.equal(uncertain.health, 'unknown'); assert.equal(uncertain.safeToRetry, false);
+  x.set({ rootExited: true, exitCode, activeProcesses: 0, ownedProcessesStopped: true, coverageUnknown: false });
+  const final = JSON.parse(await x.runtime.tools.supervisor_process_status.execute({ executionId: e.executionId }, x.ctx()));
+  assert.equal(final.sample.ownedProcessesStopped, true); assert.equal(final.sample.exitCode, exitCode);
+  assert.equal(x.launches(), 1);
+});

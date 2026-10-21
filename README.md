@@ -192,3 +192,16 @@ Fix a 0.1.4 regression where the handshake reported 0.1.3 while snapshots report
 ## Per-process environment
 
 Supervisor 0.1.11 adds optional `env` to `supervisor_run`, for example `"env": {"TMP": "D:\\project\\.tmp", "TEMP": "D:\\project\\.tmp", "TMPDIR": "D:\\project\\.tmp"}`. Create the directory first. Values override only the launched child and its descendants; the service environment and global configuration are unchanged. Windows and Linux/WSL use the same tool interface. Exact command permission includes overrides. Up to 32 string entries / 8 KiB are accepted; private GUI bootstrap keys are rejected. These variables guide cooperating programs and do not guarantee filesystem containment or control every conda cache.
+
+## Release 0.1.15
+
+Fix Windows Job closeout after many short-lived child processes: exited handles
+are retired and the tracking limit applies to concurrent members. Incomplete
+observations remain conservative but can recover on a fresh complete sample.
+Root exit alone never certifies that descendants stopped. Current and last
+observation diagnostics include API errors and closeout blockers. Call
+`supervisor_process_status` with the same execution ID to retry observation;
+do not relaunch an uncertain execution.
+
+Install the new release and reload OpenCode after active tasks finish. Already
+running helpers are not hot-updated. The GUI does not need a version change.

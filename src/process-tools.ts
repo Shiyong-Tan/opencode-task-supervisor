@@ -93,10 +93,10 @@ export async function processTools(supervisor: Supervisor, directory: string,
         },
       }),
       supervisor_process_status: tool({
-        description: 'Read tracked process evidence and bounded output for your tasks. Omit executionId to list owned executions. Unknown/quiet does not mean dead; root exit does not mean descendants stopped.',
+        description: 'Read fresh tracked process evidence and bounded output for one execution; retry observation on the SAME execution after uncertainty. Omit executionId to list cached owned executions. Unknown/quiet does not mean dead; root exit does not mean descendants stopped.',
         args: { executionId: tool.schema.string().min(1).optional() },
         async execute(args, ctx) {
-          if (args.executionId) return JSON.stringify(executions.status(args.executionId, ctx.sessionID));
+          if (args.executionId) return JSON.stringify(await executions.observe(args.executionId, ctx.sessionID));
           return JSON.stringify(executions.all().filter(e => supervisor.registry.current(e) && [e.parentSessionId, e.childSessionId].includes(ctx.sessionID))
             .map(e => ({ executionId: e.executionId, taskId: e.taskId, attemptId: e.attemptId, displayName: e.displayName,
               phase: e.phase, health: e.health, reason: e.reason, review: e.review, rootPid: e.sample?.rootPid,

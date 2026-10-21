@@ -194,3 +194,26 @@ confirmed stable v0.1.14. Source main and both tags pushed; user unstaged
 notification identity edits excluded. GUI stays 6.0.0. No model calls, ordinary
 service restart or configuration changes. Live remote-install acceptance was not
 repeated for this release; Linux/macOS runtime acceptance remains unperformed.
+
+# Windows Job closeout repair / v0.1.15
+
+The lifetime 256-member handle cache in JobHost permanently latched unknown
+coverage after sufficient process churn. The original binary reproduced this
+with 470 observed members and never certified stop. Published v0.1.14, the
+reported workspace vendor binary and the running cache binary have identical
+SHA256 DA1598176797704E7565205FFF5723A0D38BDA9908909910AE522A071828E3DB.
+This confirms binary identity, not termination of the old reported execution.
+
+Retire signaled handles, apply the limit to concurrent retained members, and
+reconcile each complete Job observation afresh. Incomplete enumeration, API
+failures and live descendants remain conservative. Add bounded current and last
+failure diagnostics (API/PID/creation identity/Win32/counts/closeout blockers).
+Exact execution status now requests fresh evidence, allowing recovery without
+relaunch or weakening review safety. Root exit or zero active count alone is
+never stop proof.
+
+Windows native regressions cover >256 historical members, exit codes 0/1,
+root exit with live child, transient member-open failure, persistent member-query
+failure while live and transient Job query failure. No production process was
+cancelled, restarted or certified stopped. Existing notification identity edits
+are excluded from the release; GUI version is unchanged.

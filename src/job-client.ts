@@ -2,6 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { resolve } from 'node:path';
 
 export interface JobSample {
+  lastObservationIssue?: { observedAt: string; rootPid: number; rootCreationFileTime: string; assigned: number; count: number;
+    activeBefore: number; activeAfter: number; trackingLimit: boolean; errorCount: number;
+    errors: { api: string; pid: number; creationFileTime: string | null; win32: number }[]; blocked: string[] } | null;
+  observation?: { enumerationComplete: boolean; assigned: number; count: number; activeBefore: number; activeAfter: number;
+    trackedHandles: number; retired: number; trackingLimit: boolean; errorCount: number;
+    errors: { api: string; pid: number; creationFileTime: string | null; win32: number }[]; blocked: string[] };
   executionId: string; sequence: number; observedAt: string;
   rootPid: number; rootCreationFileTime: string; rootExited: boolean; exitCode: number | null;
   activeProcesses: number; members: { pid: number; creationFileTime: string; alive: boolean; cpu100ns: string }[];
@@ -48,7 +54,7 @@ export class JobClient implements JobTransport {
           const reply = JSON.parse(line), pending = this.pending.get(reply.id);
           if (!pending) continue; // Expired responses never become current evidence.
           clearTimeout(pending.timer); this.pending.delete(reply.id);
-          if (!reply.ok) { pending.reject(new Error(`Job operation rejected: ${reply.error}; Win32 ${reply.win32}`)); continue; }
+          if (!reply.ok) { pending.reject(new Error(`Job operation rejected: ${reply.error}; API ${reply.api ?? 'unknown'}; Win32 ${reply.win32}`)); continue; }
           if (reply.result?.executionId !== executionId) { pending.reject(new Error('Execution identity mismatch')); continue; }
           pending.resolve(reply.result as JobSample);
         } catch { this.fail('Invalid helper protocol'); this.buffer = '';

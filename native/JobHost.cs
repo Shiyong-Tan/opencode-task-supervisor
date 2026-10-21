@@ -27,7 +27,7 @@ class JobHost {
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
-  [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern uint WaitForSingleObject(IntPtr handle, uint ms);
   [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref Security attributes, uint size);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
@@ -43,8 +43,8 @@ class JobHost {
   static bool cancelled, observeOnly;
   static bool treeStopped, launched;
   static readonly Dictionary<uint,IntPtr> memberHandles=new Dictionary<uint,IntPtr>();
-  static bool memberLimitExceeded;
   static string execution;
+  static object lastObservationIssue;
   static JavaScriptSerializer json = new JavaScriptSerializer();
   sealed class Ring {
     public volatile bool Completed;
@@ -59,6 +59,7 @@ class JobHost {
   }
   static Ring stdout=new Ring(), stderr=new Ring();
   static void Check(bool ok){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error());}
+  static void CheckApi(bool ok,string api){if(!ok){var error=new Win32Exception(Marshal.GetLastWin32Error(),api+" failed");error.Data["api"]=api;throw error;}}
   static string Quote(string s){var b=new StringBuilder("\"");int slashes=0;foreach(char c in s){if(c=='\\'){slashes++;continue;}if(c=='"')b.Append('\\',slashes*2+1);else b.Append('\\',slashes);b.Append(c);slashes=0;}b.Append('\\',slashes*2);return b.Append('"').ToString();}
   static IntPtr ChildEnvironment(Dictionary<string,object> req) {
     if(!req.ContainsKey("env"))return IntPtr.Zero;
@@ -113,25 +114,50 @@ class JobHost {
     if(root==IntPtr.Zero)throw new InvalidOperationException("Not started");
     uint returned;IntPtr data=Marshal.AllocHGlobal(65536);
     try {
-      Check(QueryInformationJobObject(job,8,data,(uint)Marshal.SizeOf(typeof(Accounting)),out returned));var accounting=(Accounting)Marshal.PtrToStructure(data,typeof(Accounting));
-      Check(QueryInformationJobObject(job,3,data,65536,out returned));uint count=(uint)Marshal.ReadInt32(data,4);var members=new List<object>();bool unknown=false, memoryKnown=true;ulong workingSet=0;
+      var errors=new List<object>();var blocked=new List<string>();bool unknown=false,memoryKnown=true,trackingLimit=false;int retired=0,errorCount=0;
+      Action<string,uint,long?,int> diagnostic=(api,pid,created,code)=>{errorCount++;if(errors.Count<16)errors.Add(new{api,pid,creationFileTime=created.HasValue?created.Value.ToString():null,win32=code});};
+      // Keep handles only while their exact OS objects remain live. A lifetime
+      // count of historical members must never exhaust the concurrent bound.
+      foreach(var pair in new List<KeyValuePair<uint,IntPtr>>(memberHandles)){
+        uint state=WaitForSingleObject(pair.Value,0);
+        if(state==0){CloseHandle(pair.Value);memberHandles.Remove(pair.Key);retired++;}
+        else if(state!=258){unknown=true;diagnostic("WaitForSingleObject(retained)",pair.Key,null,Marshal.GetLastWin32Error());}
+      }
+      CheckApi(QueryInformationJobObject(job,8,data,(uint)Marshal.SizeOf(typeof(Accounting)),out returned),"QueryInformationJobObject(accounting-before)");var accounting=(Accounting)Marshal.PtrToStructure(data,typeof(Accounting));uint activeBefore=accounting.Active;
+      CheckApi(QueryInformationJobObject(job,3,data,65536,out returned),"QueryInformationJobObject(member-list)");uint assigned=(uint)Marshal.ReadInt32(data,0),count=(uint)Marshal.ReadInt32(data,4);var members=new List<object>();ulong workingSet=0;
+      bool enumerationComplete=assigned==count;
+      if(!enumerationComplete){unknown=true;blocked.Add("member-list-incomplete");}
       if(count>(65536-8)/IntPtr.Size)throw new InvalidOperationException("Member list overflow");
       for(int i=0;i<count;i++){
         uint pid=(uint)Marshal.ReadIntPtr(data,8+i*IntPtr.Size).ToInt64();var h=OpenProcess(0x1000|0x100000,false,pid);
-        if(h==IntPtr.Zero){unknown=true;continue;}
-        try {bool member;long created,exit,kernel,user;if(!IsProcessInJob(h,job,out member)||!member||!GetProcessTimes(h,out created,out exit,out kernel,out user)){unknown=true;continue;}var memory=new Memory();memory.Size=(uint)Marshal.SizeOf(typeof(Memory));if(GetProcessMemoryInfo(h,ref memory,memory.Size))workingSet+=memory.WorkingSet.ToUInt64();else memoryKnown=false;members.Add(new{pid,creationFileTime=created.ToString(),alive=WaitForSingleObject(h,0)==258,cpu100ns=(kernel+user).ToString()});
-          if(!memberHandles.ContainsKey(pid)){if(memberHandles.Count>=256){memberLimitExceeded=true;}else{memberHandles.Add(pid,h);h=IntPtr.Zero;}}
+        if(h==IntPtr.Zero){unknown=true;diagnostic("OpenProcess",pid,null,Marshal.GetLastWin32Error());continue;}
+        try {bool member;long created,exit,kernel,user;
+          if(!IsProcessInJob(h,job,out member)){unknown=true;diagnostic("IsProcessInJob",pid,null,Marshal.GetLastWin32Error());continue;}
+          if(!member){unknown=true;diagnostic("IsProcessInJob(identity-mismatch)",pid,null,0);continue;}
+          if(!GetProcessTimes(h,out created,out exit,out kernel,out user)){unknown=true;diagnostic("GetProcessTimes",pid,null,Marshal.GetLastWin32Error());continue;}
+          uint state=WaitForSingleObject(h,0);if(state!=0&&state!=258){unknown=true;diagnostic("WaitForSingleObject(member)",pid,created,Marshal.GetLastWin32Error());continue;}
+          var memory=new Memory();memory.Size=(uint)Marshal.SizeOf(typeof(Memory));if(state==258){if(GetProcessMemoryInfo(h,ref memory,memory.Size))workingSet+=memory.WorkingSet.ToUInt64();else{memoryKnown=false;diagnostic("GetProcessMemoryInfo",pid,created,Marshal.GetLastWin32Error());}}
+          members.Add(new{pid,creationFileTime=created.ToString(),alive=state==258,cpu100ns=(kernel+user).ToString()});
+          if(state==258&&pid!=rootPid&&!memberHandles.ContainsKey(pid)){if(memberHandles.Count>=256){trackingLimit=true;unknown=true;}else{memberHandles.Add(pid,h);h=IntPtr.Zero;}}
         }
         finally{if(h!=IntPtr.Zero)CloseHandle(h);}
       }
       // Job count is queried again: enumeration races are not a stop certificate.
-      Check(QueryInformationJobObject(job,8,data,(uint)Marshal.SizeOf(typeof(Accounting)),out returned));accounting=(Accounting)Marshal.PtrToStructure(data,typeof(Accounting));
-      bool rootExited=WaitForSingleObject(root,0)==0;uint exitCode;Check(GetExitCodeProcess(root,out exitCode));
-      bool knownMembersStopped=true;foreach(var h in memberHandles.Values)if(WaitForSingleObject(h,0)!=0)knownMembersStopped=false;
-      unknown=unknown||memberLimitExceeded;
+      CheckApi(QueryInformationJobObject(job,8,data,(uint)Marshal.SizeOf(typeof(Accounting)),out returned),"QueryInformationJobObject(accounting-after)");accounting=(Accounting)Marshal.PtrToStructure(data,typeof(Accounting));
+      if(activeBefore!=accounting.Active||count!=accounting.Active){unknown=true;blocked.Add("membership-changed-during-sample");}
+      uint rootState=WaitForSingleObject(root,0);bool rootExited=rootState==0;if(rootState!=0&&rootState!=258){unknown=true;diagnostic("WaitForSingleObject(root)",rootPid,rootCreated,Marshal.GetLastWin32Error());}
+      uint exitCode;CheckApi(GetExitCodeProcess(root,out exitCode),"GetExitCodeProcess(root)");
+      bool knownMembersStopped=true;foreach(var pair in new List<KeyValuePair<uint,IntPtr>>(memberHandles)){
+        uint state=WaitForSingleObject(pair.Value,0);
+        if(state==0){CloseHandle(pair.Value);memberHandles.Remove(pair.Key);retired++;}
+        else{knownMembersStopped=false;if(state!=258){unknown=true;diagnostic("WaitForSingleObject(retained-final)",pair.Key,null,Marshal.GetLastWin32Error());}}
+      }
+      if(!rootExited)blocked.Add("root-live-or-unknown");if(accounting.Active!=0)blocked.Add("job-members-active");if(!knownMembersStopped)blocked.Add("retained-members-live-or-unknown");
+      if(trackingLimit)blocked.Add("concurrent-member-handle-limit");if(unknown)blocked.Add("coverage-incomplete-this-sample");if(!stdout.Completed||!stderr.Completed)blocked.Add("output-drain-pending");
+      if(unknown||errorCount>0)lastObservationIssue=new{observedAt=DateTime.UtcNow.ToString("o"),rootPid,rootCreationFileTime=rootCreated.ToString(),assigned,count,activeBefore,activeAfter=accounting.Active,trackingLimit,errorCount,errors,blocked};
       bool stopped=accounting.Active==0&&rootExited&&knownMembersStopped&&!unknown&&stdout.Completed&&stderr.Completed;
-      treeStopped=accounting.Active==0&&rootExited&&stdout.Completed&&stderr.Completed;
-      return new{workingSetBytes=memoryKnown&&!unknown?workingSet.ToString():null,executionId=execution,sequence=++sequence,observedAt=DateTime.UtcNow.ToString("o"),rootPid,rootCreationFileTime=rootCreated.ToString(),rootExited,exitCode=rootExited?(long?)exitCode:null,activeProcesses=accounting.Active,members,cpu100ns=(accounting.User+accounting.Kernel).ToString(),readBytes=accounting.Io.ReadBytes.ToString(),writeBytes=accounting.Io.WriteBytes.ToString(),requestAccepted=cancelled,ownedProcessesStopped=stopped,coverageUnknown=unknown,cancelOutcomeUnknown=cancelled&&(unknown||!stopped),stdout=stdout.View(),stderr=stderr.View(),scope="local-job-members-only; no remote or brokered effects"};
+      treeStopped=stopped;
+      return new{lastObservationIssue,observation=new{enumerationComplete,assigned,count,activeBefore,activeAfter=accounting.Active,trackedHandles=memberHandles.Count,retired,trackingLimit,errorCount,errors,blocked},workingSetBytes=memoryKnown&&!unknown?workingSet.ToString():null,executionId=execution,sequence=++sequence,observedAt=DateTime.UtcNow.ToString("o"),rootPid,rootCreationFileTime=rootCreated.ToString(),rootExited,exitCode=rootExited?(long?)exitCode:null,activeProcesses=accounting.Active,members,cpu100ns=(accounting.User+accounting.Kernel).ToString(),readBytes=accounting.Io.ReadBytes.ToString(),writeBytes=accounting.Io.WriteBytes.ToString(),requestAccepted=cancelled,ownedProcessesStopped=stopped,coverageUnknown=unknown,cancelOutcomeUnknown=cancelled&&(unknown||!stopped),stdout=stdout.View(),stderr=stderr.View(),scope="local-job-members-only; no remote or brokered effects"};
     }finally{Marshal.FreeHGlobal(data);}
   }
   public static int Main(string[] args){
@@ -141,7 +167,7 @@ class JobHost {
       try{string line;while((line=Console.ReadLine())!=null){if(line.Length>32768)throw new InvalidOperationException("Request too large");var req=json.Deserialize<Dictionary<string,object>>(line);var op=(string)req["op"];try{
         if(op=="start")Start(req);else {if((string)req["executionId"]!=execution)throw new InvalidOperationException("Execution mismatch");if(op=="cancel"){if(observeOnly)throw new InvalidOperationException("Observation mode cannot cancel");if(!cancelled){Check(TerminateJobObject(job,1223));cancelled=true;}}else if(op=="close")break;else if(op!="sample")throw new InvalidOperationException("Unknown operation");}
         Console.WriteLine(json.Serialize(new{id=req["id"],ok=true,result=Sample()}));
-      }catch(Exception e){Console.WriteLine(json.Serialize(new{id=req["id"],ok=false,error=e.GetType().Name,win32=e is Win32Exception?((Win32Exception)e).NativeErrorCode:0}));if(op=="start")return 1;}}
+      }catch(Exception e){Console.WriteLine(json.Serialize(new{id=req["id"],ok=false,error=e.GetType().Name,api=e.Data["api"],win32=e is Win32Exception?((Win32Exception)e).NativeErrorCode:0}));if(op=="start")return 1;}}
       return 0;}catch{return 2;}finally{
         // Keep output pipes drained after observer disconnect; no kill-on-close in observation mode.
         if(observeOnly&&launched)while(!treeStopped){try{Sample();}catch{}Thread.Sleep(1000);}

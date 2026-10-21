@@ -1,6 +1,6 @@
 {
   "name": "opencode-task-supervisor",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "type": "module",
   "description": "Task supervision, permission evidence and process tracking for OpenCode",
   "scripts": {
@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-transform-types --test test/*.test.ts",
     "test:linux": "npm run build && node scripts/test-linux-process.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "test:windows:closeout": "npm run build && node --experimental-transform-types scripts/test-windows-closeout.ts && node --experimental-transform-types scripts/test-windows-closeout-faults.ts"
   },
   "dependencies": {
     "@opencode-ai/plugin": "1.18.29",

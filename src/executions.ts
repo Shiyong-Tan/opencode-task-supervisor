@@ -96,7 +96,8 @@ export class Executions {
     v.sample = structuredClone(sample); v.lastObservedAt = this.clock.now();
     v.cancelOutcomeUnknown = v.cancelRequested && (!sample.ownedProcessesStopped || sample.coverageUnknown);
     if (sample.ownedProcessesStopped && !sample.coverageUnknown) { v.phase = 'stopped'; v.health = 'stopped'; v.reason = undefined; v.finishedAt = this.clock.now(); }
-    else if (sample.coverageUnknown) { v.phase = 'running'; v.health = 'unknown'; v.reason = 'Job member observation incomplete'; }
+    else if (sample.coverageUnknown) { v.phase = 'running'; v.health = 'unknown'; v.reason = 'Job member observation incomplete' +
+      (sample.observation?.blocked.length ? ': ' + sample.observation.blocked.join(', ').slice(0, 240) : '') + '. Retry supervisor_process_status on the same execution for fresh evidence; do not relaunch.'; }
     else { v.phase = 'running'; v.health = v.review?.needed || (this.clock.now() - v.lastActivityAt >= this.suspectMs && this.clock.now() >= (entry.quietReviewedUntil ?? 0)) ? 'suspect' : 'running';
       v.reason = v.review?.needed ? 'Scheduled process review due. Inspect expected progress now; justify a bounded extension or decide recovery. Do not blindly wait again.' :
         v.health === 'suspect' ? 'No useful CPU/write/output activity; read probes and tiny polling CPU do not establish progress. Inspect waiting/input/locks; no automatic cancellation.' : undefined; }
@@ -105,7 +106,7 @@ export class Executions {
     const delay = reviewDelay(afterMs), decision = reviewText(reason);
     await this.observe(id, session);
     const entry = this.owned(id, session), v = entry.view;
-    if (v.phase !== 'running' || v.health === 'unknown' || v.cancelRequested) throw new Error('Cannot extend an uncertain, cancelled or stopped execution');
+    if (v.phase !== 'running' || v.health === 'unknown' || v.cancelRequested) throw new Error('Cannot extend an uncertain, cancelled or stopped execution. Use supervisor_process_status on the same execution to retry observation; never relaunch without stop evidence.');
     if (!v.review) throw new Error('Execution has no review plan');
     v.review.dueAt = this.clock.now() + delay; v.review.count++; v.review.lastDecision = decision; v.review.needed = false;
     // A bounded reviewed wait does not change the actual last activity timestamp.
@@ -129,7 +130,7 @@ export class Executions {
           this.apply(entry, sample);
           if (entry.view.phase === 'stopped') await entry.transport!.close();
         }
-      } catch { if (generation === entry.generation) this.unknown(entry, 'Query failed or process identity mismatch; no stop proof'); }
+      } catch (error) { if (generation === entry.generation) this.unknown(entry, `Query failed or process identity mismatch; no stop proof. ${error instanceof Error ? error.message.slice(0, 240) : ''}`); }
       return this.copy(entry);
     })().finally(() => { entry.poll = undefined; });
     return entry.poll;
