@@ -217,3 +217,17 @@ root exit with live child, transient member-open failure, persistent member-quer
 failure while live and transient Job query failure. No production process was
 cancelled, restarted or certified stopped. Existing notification identity edits
 are excluded from the release; GUI version is unchanged.
+
+Published stable v0.1.15:
+https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.15.
+Source 6a6f55b; compiled Git distribution
+79dde2a61dbb1d38567a40599f747145ab62cd2d (package-v0.1.15).
+Clean-source typecheck/build, 179/179 tests, Windows native churn
+536/528 observed members (exit 0/1), root-exit/live-child guard and all three
+fault-injection cases passed. Downloaded archive SHA256
+ccae60ffe618bfab6fc4402ee3ded65f65076e1e46a063b5916d8addc3f4d457
+matches the local artifact; all three release assets match fresh downloads.
+GitHub latest confirmed v0.1.15; main and both tags pushed. No model calls,
+GUI version/configuration changes or production service/process operations.
+Linux/macOS runtime acceptance was not repeated. The old reported execution's
+termination remains unverified; running old helpers are not hot-updated.
