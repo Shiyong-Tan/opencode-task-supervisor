@@ -26,7 +26,7 @@ async function run(mode: string, exit: number) {
       const ready = Number(await readFile(release + '.ready', 'utf8').catch(() => '0'));
       for (const member of sample.members) if (member.pid !== sample.rootPid && member.alive) {
         seen.add(member.pid);
-        if (ready === member.pid && released !== ready && (mode !== 'root-exit' || sample.rootExited)) { await writeFile(release, String(member.pid)); released = ready; }
+        if (ready === member.pid && released !== ready && (mode !== 'root-exit' || sample.rootExited)) { try { await writeFile(release, String(member.pid)); released = ready; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error; } }
       }
       if (sample.rootExited && sample.activeProcesses === 0) {
         // Allow output drain and a fresh complete empty observation to settle.
