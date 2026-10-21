@@ -1,0 +1,141 @@
+import { tool } from '@opencode-ai/plugin';
+import { realpath, access } from 'node:fs/promises';
+import { isAbsolute, relative, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { JobClient } from "./job-client.js";
+import { Executions } from "./executions.js";
+import { supportsProcessTracking, linuxHelperRuntime } from "./platform-capabilities.js";
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { processEnvironment } from "./process-environment.js";
+import { processProgress } from "./process-progress.js";
+import { waitMode } from "./wait-mode.js";
+import { bounded } from "./clock.js";
+export const processGuidance = `\n\nProcess tracking for this supervised task:
+Use supervisor_run for long-running computation, builds and tests. Supply the absolute executable path, argument array and working directory; a shell script requires an explicit shell executable. Optional env supplies per-process environment overrides (for example TMP, TEMP and TMPDIR set to an existing project-local directory). Overrides are inherited by descendants; they do not enforce filesystem containment. Command and environment permission is checked before launch.
+Before launch, provide estimatedDurationMs with estimateReason when estimable, checkAfterMs for the next inspection deadline (maximum first checkpoint ten minutes by default), and progressExpectation describing concrete expected evidence. If duration is unknown, say so in estimateReason and supply a bounded checkAfterMs. These are review deadlines, never kill timeouts.
+The tool returns an executionId, NOT completion. Prefer the default until_attention wait mode: healthy sampling stays internal, without timed model checkpoints. On review-needed or suspected inactivity, inspect the SAME execution's output/process tree and expected task progress. Decide recovery yourself within the authorized scope. Do not blindly repeat waits or ask the user about routine cancellation. Extend only with supervisor_process_review(checkAfterMs, reason) naming observed evidence and why bounded waiting is appropriate. Repeated extensions require fresh evidence, not just process liveness. Never finalize merely because a command was started; never overlap replacements without verified stop evidence.
+Simple reads may use ordinary tools; ordinary shell processes are not tracked. If tracking is unavailable, report it. Never relaunch an uncertain execution or silently fall back to another launch tool. Quiet/GPU/waiting processes are not proven dead. No automatic termination or retry.
+On Linux/WSL, tracking covers a newly created process group using /proc identity and counters. Do not daemonize, call setsid, or move descendants out of that group. Group completion is not proof that escaped descendants stopped; safeToRetry remains false. Use Linux executable/cwd paths when OpenCode runs inside WSL.`;
+/** Only this module installs normal-mode process evidence; laboratory mode stays separate. */
+export async function processTools(supervisor, directory, factory) {
+    const workspace = await realpath(directory);
+    const linux = process.platform === 'linux';
+    const helper = fileURLToPath(new URL(linux ? '../dist/linux-process-host.js' : '../dist/native/JobHost.exe', import.meta.url));
+    const executions = new Executions(supervisor.registry, supervisor.clock, factory ?? (id => new JobClient(helper, id, workspace, 5000, true, linux ? linuxHelperRuntime(process.versions, process.execPath) : undefined)), 300_000, true);
+    const invocations = new WeakMap();
+    const pending = (e) => e.phase !== 'stopped' && e.phase !== 'permission_denied' && (e.phase !== 'start_failed' || e.cancelOutcomeUnknown);
+    supervisor.processEvidence = id => {
+        const all = executions.all().filter(e => e.taskId === id.taskId && e.attemptId === id.attemptId && e.childSessionId === id.childSessionId);
+        if (!all.length)
+            return;
+        const live = all.filter(pending);
+        const active = live.filter(e => e.health === 'running' && e.lastActivityAt > e.createdAt && supervisor.clock.now() - e.lastActivityAt < 5000);
+        return { process: active.length ? 'active' : live.some(e => e.health === 'unknown') ? 'unknown' : 'inactive',
+            processActivity: active.length ? active.map(e => `${e.executionId}:${e.sample?.cpu100ns}:${e.sample?.readBytes}:${e.sample?.writeBytes}:${e.sample?.stdout.totalBytes}:${e.sample?.stderr.totalBytes}`).join('|') : undefined,
+            pending: live.length > 0, permission: live.some(e => e.phase === 'waiting_permission'), reviewNeeded: live.some(e => e.health === 'suspect'),
+            stopped: all.every(e => e.phase === 'permission_denied' || (e.sample?.ownedProcessesStopped === true && !e.sample.coverageUnknown)) };
+    };
+    const executionArgs = { executionId: tool.schema.string().min(1) };
+    return {
+        executions,
+        before(input, output) {
+            if (input.tool === 'supervisor_run' && output.args && typeof output.args === 'object')
+                invocations.set(output.args, { sessionId: input.sessionID, callId: input.callID });
+        },
+        async tick() {
+            await Promise.all(executions.all().filter(e => supervisor.registry.current(e) && pending(e))
+                .map(e => executions.observe(e.executionId, e.parentSessionId)));
+        },
+        dispose: () => executions.dispose(),
+        tools: {
+            supervisor_run: tool({
+                description: 'Launch and register a process for your current supervised child task. Requires explicit command permission. Returns promptly, not completion; continue supervisor_process_wait with the returned executionId. Does not cancel, retry or attach to existing processes.',
+                args: { executable: tool.schema.string().min(1).max(4096), args: tool.schema.array(tool.schema.string().max(16000)).max(128),
+                    cwd: tool.schema.string().min(1).max(4096), env: tool.schema.record(tool.schema.string(), tool.schema.string()).optional(),
+                    estimatedDurationMs: tool.schema.number().int().min(1000).max(86400000).optional(),
+                    estimateReason: tool.schema.string().min(1).max(1000).optional(),
+                    checkAfterMs: tool.schema.number().int().min(1000).max(86400000).optional(),
+                    progressExpectation: tool.schema.string().min(1).max(1000).optional() },
+                async execute(args, ctx) {
+                    const invocation = invocations.get(args);
+                    invocations.delete(args);
+                    if (!invocation || invocation.sessionId !== ctx.sessionID || !invocation.callId)
+                        throw new Error('Missing trusted OpenCode tool-call identity');
+                    if (!factory && !supportsProcessTracking(process.platform))
+                        throw new Error('Process tracking requires Windows or Linux');
+                    if (!isAbsolute(args.executable) || !isAbsolute(args.cwd) || [...args.args, args.cwd, args.executable].some(v => v.includes('\0')))
+                        throw new Error('Absolute executable/cwd and NUL-free arguments required');
+                    if (JSON.stringify(args).length > 24000)
+                        throw new Error('Command exceeds tracking request bound');
+                    const env = processEnvironment(args.env);
+                    const executable = await realpath(args.executable), cwd = await realpath(args.cwd);
+                    if (process.platform === 'win32' && extname(executable).toLowerCase() !== '.exe')
+                        throw new Error('Use an explicit .exe interpreter for scripts');
+                    if (!factory)
+                        await access(helper);
+                    if (!factory && linux) {
+                        try {
+                            const { stdout } = await promisify(execFile)(linuxHelperRuntime(process.versions, process.execPath), ['--version'], { timeout: 2000 });
+                            if (Number(stdout.trim().match(/^v(\d+)/)?.[1] ?? 0) < 18)
+                                throw new Error('Unsupported runtime');
+                        }
+                        catch {
+                            throw new Error('Linux process tracking requires Node.js 18+ on PATH when OpenCode uses bundled Bun; no process started.');
+                        }
+                    }
+                    const value = await executions.start(ctx.sessionID, invocation.callId, { executable, args: [...args.args], cwd, ...(env ? { env } : {}), artifactPaths: [],
+                        reviewPlan: { estimatedDurationMs: args.estimatedDurationMs, estimateReason: args.estimateReason,
+                            checkAfterMs: args.checkAfterMs, progressExpectation: args.progressExpectation } }, async () => {
+                        const rel = relative(workspace, cwd);
+                        if (isAbsolute(rel) || rel === '..' || rel.startsWith('..\\') || rel.startsWith('../'))
+                            await ctx.ask({ permission: 'external_directory', patterns: [cwd], always: [], metadata: { cwd } });
+                        // A dedicated exact-command permission avoids pretending to implement the native shell parser.
+                        await ctx.ask({ permission: 'supervisor_run', patterns: [JSON.stringify({ executable, args: args.args, cwd, ...(env ? { env } : {}) })], always: [],
+                            metadata: { executable, args: args.args, cwd, environmentKeys: Object.keys(env ?? {}), scope: 'Launch this command and observe its owned processes; Linux coverage is its process group, not containment. No termination or retry' } });
+                    }, ctx.abort);
+                    return JSON.stringify(value);
+                },
+            }),
+            supervisor_process_status: tool({
+                description: 'Read fresh tracked process evidence and bounded output for one execution; retry observation on the SAME execution after uncertainty. Omit executionId to list cached owned executions. Unknown/quiet does not mean dead; root exit does not mean descendants stopped.',
+                args: { executionId: tool.schema.string().min(1).optional() },
+                async execute(args, ctx) {
+                    if (args.executionId)
+                        return JSON.stringify(await executions.observe(args.executionId, ctx.sessionID));
+                    return JSON.stringify(executions.all().filter(e => supervisor.registry.current(e) && [e.parentSessionId, e.childSessionId].includes(ctx.sessionID))
+                        .map(e => ({ executionId: e.executionId, taskId: e.taskId, attemptId: e.attemptId, displayName: e.displayName,
+                        phase: e.phase, health: e.health, reason: e.reason, review: e.review, rootPid: e.sample?.rootPid,
+                        activeProcesses: e.sample?.activeProcesses, exitCode: e.sample?.exitCode,
+                        ownedProcessesStopped: e.sample?.ownedProcessesStopped, lastActivityAt: e.lastActivityAt })));
+                },
+            }),
+            supervisor_process_review: tool({
+                description: 'After inspecting a review alert, explicitly extend the SAME execution with a bounded next check and evidence-based reason. Does not launch, resume, cancel or declare process progress. Never use liveness alone to justify repeated extensions.',
+                args: { ...executionArgs, checkAfterMs: tool.schema.number().int().min(1000).max(86400000), reason: tool.schema.string().min(1).max(1000) },
+                async execute(args, ctx) { return JSON.stringify(await executions.extendReview(args.executionId, ctx.sessionID, args.checkAfterMs, args.reason)); },
+            }),
+            supervisor_process_wait: tool({
+                description: 'Wait on the SAME execution. Default mode until_attention keeps this call open while observations remain healthy; returns only on completion, review-needed health or uncertainty, with output and exit code. Internal checks do not invoke a model. Use mode checkpoint only for an intentional timed coordination return; waitMs applies only to checkpoint mode. Abort stops waiting, never the process. Quiet is not proof of a hang.',
+                args: { ...executionArgs, mode: tool.schema.enum(['until_attention', 'checkpoint']).default('until_attention'),
+                    waitMs: tool.schema.number().int().min(1000).max(60000).default(30000) },
+                async execute(args, ctx) {
+                    const waitMs = args.waitMs ?? 30000;
+                    if (!Number.isFinite(waitMs) || waitMs < 1000 || waitMs > 60000)
+                        throw new Error('Invalid wait duration');
+                    const deadline = waitMode(args.mode) === 'checkpoint' ? supervisor.clock.now() + waitMs : Infinity;
+                    ctx.abort.throwIfAborted();
+                    let value = executions.status(args.executionId, ctx.sessionID);
+                    ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
+                    while (pending(value) && value.health === 'running' && supervisor.clock.now() < deadline) {
+                        await supervisor.clock.sleep(Math.min(1000, deadline - supervisor.clock.now()), ctx.abort);
+                        value = await bounded(supervisor.clock, 6000, () => executions.observe(args.executionId, ctx.sessionID), ctx.abort);
+                        ctx.abort.throwIfAborted();
+                        ctx.metadata({ title: processProgress(value, supervisor.clock.now()) });
+                    }
+                    return JSON.stringify(value);
+                },
+            }),
+        },
+    };
+}
