@@ -63,14 +63,17 @@ export class V2ObservationApi {
       info.urls.some(item => typeof item !== 'string') || typeof record(info.paths).tmp !== 'string') throw new Error('Invalid V2 identity');
     return parseOpenCodeVersion(info.version);
   }
+  protected matchesWorkspace(directory: unknown): boolean {
+    const key = (value: string) => process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value);
+    return typeof directory === 'string' && key(directory) === key(this.options.directory);
+  }
   async observe(sessionId: string, signal: AbortSignal): Promise<Snapshot> {
     if (!/^ses_[A-Za-z0-9_-]{1,240}$/.test(sessionId)) throw new Error('Invalid V2 observation session');
     const path = `/api/session/${encodeURIComponent(sessionId)}`;
     const session = record(record(await this.read(path, signal)).data);
     if (session.id !== sessionId) throw new Error('V2 session identity mismatch');
     const directory = record(session.location).directory;
-    const key = (value: string) => process.platform === 'win32' ? resolve(value).toLowerCase() : resolve(value);
-    if (typeof directory !== 'string' || key(directory) !== key(this.options.directory)) throw new Error('V2 session workspace mismatch');
+    if (!this.matchesWorkspace(directory)) throw new Error('V2 session workspace mismatch');
     const messages: unknown[] = [], seen = new Set<string>(); let cursor: string | undefined;
     for (let page = 0; ; page++) {
       if (page >= 128) throw new Error('V2 transcript exceeds observation pagination bound');

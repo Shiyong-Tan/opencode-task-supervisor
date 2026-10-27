@@ -81,7 +81,7 @@ export class OpenCodeV2Api extends V2ObservationApi implements Api {
     const matches = array(object(catalogValue).data).map(object).filter(item => item.id === agent);
     if (matches.length !== 1 || !['subagent', 'all'].includes(String(matches[0]!.mode))) throw new Error('Unknown or unavailable subagent');
     const selected = matches[0]!, parent = object(object(parentValue).data);
-    if (parent.id !== parentSessionId || object(parent.location).directory !== this.options.directory) throw new Error('V2 parent scope mismatch');
+    if (parent.id !== parentSessionId || !this.matchesWorkspace(object(parent.location).directory)) throw new Error('V2 parent scope mismatch');
     let experimental: ObjectValue = {};
     for (const entry of array(configValue).map(object)) if (entry.type === 'document') {
       const info = object(entry.info); if (info.experimental !== undefined) experimental = object(info.experimental);

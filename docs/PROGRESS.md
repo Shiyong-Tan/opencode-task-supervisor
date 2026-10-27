@@ -231,3 +231,14 @@ GitHub latest confirmed v0.1.15; main and both tags pushed. No model calls,
 GUI version/configuration changes or production service/process operations.
 Linux/macOS runtime acceptance was not repeated. The old reported execution's
 termination remains unverified; running old helpers are not hot-updated.
+
+# V2 parent workspace scope repair (2026-10-27)
+
+The reported parent ID matches its endpoint identity; its directory is
+`g:\12.Echo_MRI` while the plugin realpath is `G:\12.Echo_MRI`. Prepare used
+strict string equality unlike observation. Both now share the existing platform
+path comparison: Windows normalizes resolved paths case-insensitively; POSIX
+retains case. Exact session identity and foreign-workspace rejection remain.
+180 tests and typecheck passed. No production task is dispatched or restarted,
+and no configuration is changed. Source repair only; version stays 0.1.15 and
+publication requires a separate release task. User notification edits excluded.

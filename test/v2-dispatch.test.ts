@@ -6,9 +6,9 @@ import type { AgentDispatch } from '../src/agent-dispatch.ts';
 const signal = () => new AbortController().signal;
 const selected: AgentDispatch = { agent: 'reviewer', model: { providerID: 'provider', modelID: 'model' }, variant: 'high',
   permission: [{ permission: 'shell', pattern: 'danger*', action: 'deny' }] };
-function harness(reply: (url: URL, init: RequestInit) => Response | Promise<Response>) {
+function harness(reply: (url: URL, init: RequestInit) => Response | Promise<Response>, directory = '/fixture') {
   const calls: { path: string; method: string; body?: unknown }[] = [];
-  const api = new OpenCodeV2Api({ baseUrl: 'http://127.0.0.1:42000', directory: '/fixture', authorization: 'Basic fixture', isCurrent: () => true,
+  const api = new OpenCodeV2Api({ baseUrl: 'http://127.0.0.1:42000', directory, authorization: 'Basic fixture', isCurrent: () => true,
     fetch: async (value, init) => { const url = new URL(String(value)); calls.push({ path: url.pathname + url.search, method: String(init?.method), body: init?.body ? JSON.parse(String(init.body)) : undefined }); return reply(url, init || {}); } });
   return { api, calls };
 }
@@ -55,4 +55,25 @@ test('native role preparation verifies caller, catalog, inherited deny rules and
   assert.ok(result.permission.some(rule => rule.permission === 'supervisor_dispatch' && rule.action === 'deny'));
   assert.ok(f.calls.every(call => call.method === 'GET'));
   await assert.rejects(f.api.prepare('ses_parent', 'msg_caller', 'imposter', 'reviewer', signal()));
+});
+
+
+test('parent scope uses platform path semantics while retaining exact session identity', async () => {
+  const directory = process.platform === 'win32' ? 'G:\\12.Echo_MRI' : '/workspace/Project';
+  for (const [id, parentDirectory, allowed] of [
+    ['ses_parent', process.platform === 'win32' ? 'g:/12.Echo_MRI/' : '/workspace/Project/', true],
+    ['ses_parent', process.platform === 'win32' ? 'G:/different' : '/workspace/project', false],
+    ['ses_foreign', directory, false],
+  ] as const) {
+    const f = harness(url => {
+      if (url.pathname === '/api/agent') return Response.json({ data: [{ id: 'reviewer', mode: 'subagent', permissions: [], model: { providerID: 'provider', id: 'model' } }] });
+      if (url.pathname === '/api/model') return Response.json({ data: [{ providerID: 'provider', id: 'model', enabled: true, variants: [] }] });
+      if (url.pathname === '/api/config') return Response.json([]);
+      if (url.pathname.endsWith('/message')) return Response.json({ data: [{ id: 'msg_caller', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'model' } }], cursor: {} });
+      return Response.json({ data: { id, location: { directory: parentDirectory }, permissions: [] } });
+    }, directory);
+    if (allowed) await f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal());
+    else await assert.rejects(f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal()), /parent scope mismatch/);
+    assert.ok(f.calls.every(call => call.method === 'GET'));
+  }
 });
