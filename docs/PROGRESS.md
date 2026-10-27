@@ -248,3 +248,15 @@ publication requires a separate release task. User notification edits excluded.
 Publish ee6bdd1's native V2 parent scope repair from a clean Git archive. Exclude
 unstaged notification identity edits. GUI version and production configuration
 remain unchanged; no service restart, model call or dispatch is part of release.
+
+Published stable v0.1.16:
+https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.16.
+Source 9f6f2b4; compiled Git distribution
+f5f2669f1628824e95ba8adac4110b05008bb1fd (package-v0.1.16).
+Clean-source typecheck, 180/180 tests and package build passed. Fresh GitHub
+asset downloads match all three local release assets. Archive SHA256
+326867a6f5526b63dd41f52e2b78c864ef8c0c927da871f00f53137ae9275a04.
+GitHub latest confirmed v0.1.16. Main/source/package tags pushed; unstaged
+notification identity edits excluded. GUI version is unchanged. No production
+configuration changes, dispatches, restarts or model calls. Existing pinned
+v0.1.15 configuration and running services are not changed by publication.
