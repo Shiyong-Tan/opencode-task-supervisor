@@ -205,3 +205,12 @@ do not relaunch an uncertain execution.
 
 Install the new release and reload OpenCode after active tasks finish. Already
 running helpers are not hot-updated. The GUI does not need a version change.
+
+## Release 0.1.16
+
+Fix native V2 dispatch rejecting equivalent Windows workspace paths such as
+`g:\12.Echo_MRI` and `G:\12.Echo_MRI`. Dispatch preparation now shares the
+monitoring path comparison: resolved Windows paths ignore case; POSIX paths keep
+case. Exact parent session identity and foreign workspace rejection are retained.
+This does not dispatch or retry existing tasks automatically. Update the plugin
+and reload OpenCode after active tasks finish; running plugins are not hot-updated.

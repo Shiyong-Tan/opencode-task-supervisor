@@ -242,3 +242,9 @@ retains case. Exact session identity and foreign-workspace rejection remain.
 180 tests and typecheck passed. No production task is dispatched or restarted,
 and no configuration is changed. Source repair only; version stays 0.1.15 and
 publication requires a separate release task. User notification edits excluded.
+
+# Supervisor 0.1.16 release preparation (2026-10-27)
+
+Publish ee6bdd1's native V2 parent scope repair from a clean Git archive. Exclude
+unstaged notification identity edits. GUI version and production configuration
+remain unchanged; no service restart, model call or dispatch is part of release.
