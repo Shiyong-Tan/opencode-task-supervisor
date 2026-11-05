@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { prepareNormalPlugin } from '../src/normal-plugin.ts';
-import { canonicalWindowsWorkspace, serviceAuthenticationProof } from '../src/normal-connection-protocol.ts';
+import { prepareNormalPlugin, startNormalPlugin } from '../src/normal-plugin.ts';
+import { canonicalWindowsWorkspace, serviceAuthenticationProof, verifyConnectionLease } from '../src/normal-connection-protocol.ts';
 import { ViewProjection } from '../src/view-projection.ts';
 import { Registry } from '../src/registry.ts';
 import { FakeClock } from './helpers.ts';
@@ -55,4 +55,32 @@ test('normal view adapter preserves existing projection owners while rejecting f
     { isolationId: integrationId }, { scope: 'isolated_allowlisted_commands' }, { parentSessionId: 'ses_B' }]) {
     assert.throws(() => parseNormalView({ ...wire, ...change }, integrationId, serviceId));
   }
+});
+
+
+test('discovery heartbeat renews without any task-monitor tick and stops on close', async t => {
+  const lab = join(process.cwd(), '.lab'); await mkdir(lab, { recursive: true });
+  const directory = await realpath(await mkdtemp(join(lab, 'lease-heartbeat-')));
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: 1000 });
+  const binding = { integrationId: '11'.repeat(32), serviceId: '22'.repeat(32), workspace: 'd:/trial', serviceOrigin: 'http://127.0.0.1:42001' };
+  const launchKey = '33'.repeat(32);
+  const launch = { schemaVersion: 1 as const, kind: 'normal-gui-launch' as const, binding, launchKey,
+    identityKey: '44'.repeat(32), privateDirectory: directory, authenticationProof: 'unused fixture' };
+  const clock = new FakeClock();
+  const view = new ViewProjection(new Registry(clock), clock, { isolationId: binding.integrationId, pluginVersion: '0.1.16', openCodeVersion: '2.0.31' }, undefined, undefined, undefined, undefined, '55'.repeat(32));
+  const runtime = await startNormalPlugin({ launch } as Awaited<ReturnType<typeof prepareNormalPlugin>>,
+    { verifyVersion: async () => '2.0.31', verifyCompatibility: async () => '2.0.31' }, view);
+  const file = join(directory, `${binding.serviceId}.json`);
+  try {
+    t.mock.timers.tick(81000);
+    let fresh = false;
+    for (let i = 0; i < 100; i++) {
+      try { verifyConnectionLease(JSON.parse(await readFile(file, 'utf8')), binding, launchKey, Date.now()); fresh = true; break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(fresh, true, 'heartbeat must remain live when no supervisor/process tick is called');
+    await runtime.close();
+    t.mock.timers.tick(120000);
+    await assert.rejects(readFile(file));
+  } finally { await runtime.close(); t.mock.timers.reset(); await rm(directory, { recursive: true, force: true }); }
 });

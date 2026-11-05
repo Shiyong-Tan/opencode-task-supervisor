@@ -16,6 +16,8 @@ export interface NormalBridgeOptions {
   directory: string;
   snapshot(parentSessionId: string, signal: AbortSignal): Promise<unknown>;
   now?(): number;
+  /** Atomic publication boundary; defaults to the filesystem rename primitive. */
+  replaceFile?(source: string, destination: string): Promise<void>;
 }
 
 /** Owns only its bridge and discovery lease, never the OpenCode process or tasks. */
@@ -34,7 +36,6 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
   let current: ConnectionLease | undefined;
   let closed = false;
   let writes = Promise.resolve();
-  const temporary = `${file}.${instanceId}.tmp`;
   const renew = (): Promise<void> => {
     const operation = writes.then(async () => {
       if (closed) return;
@@ -48,11 +49,17 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
         instanceId, bridgeOrigin: bridge!.endpoint, opencodeVersion: options.openCodeVersion, pluginVersion,
         issuedAt, expiresAt: issuedAt + 60_000 };
       const signed = signConnectionLease(lease, options.launchKey);
+      // A failed Windows replacement must not poison every later renewal with
+      // EEXIST. Each serialized write owns a unique temporary file and cleans it
+      // after success or failure; old/foreign temporary evidence is untouched.
+      const temporary = `${file}.${instanceId}.${randomBytes(8).toString('hex')}.tmp`;
       const handle = await open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(signed)); await handle.sync(); }
-      finally { await handle.close(); }
-      await rename(temporary, file);
-      current = lease;
+      try {
+        try { await handle.writeFile(JSON.stringify(signed)); await handle.sync(); }
+        finally { await handle.close(); }
+        await (options.replaceFile ?? rename)(temporary, file);
+        current = lease;
+      } finally { await unlink(temporary).catch(() => undefined); }
     });
     writes = operation.catch(() => undefined);
     return operation;
@@ -73,13 +80,12 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
     await bridge?.close();
     await reservation.close();
     await unlink(reservationPath);
-    await unlink(temporary).catch(() => undefined);
     throw error;
   }
   let closing: Promise<void> | undefined;
   return {
     instanceId, file,
-    /** Plugin tick calls this; there is no second service manager or background timer. */
+    /** Renew only this bridge lease; never owns OpenCode or task execution. */
     renew,
     close(): Promise<void> {
       return closing ??= (async () => {
@@ -94,7 +100,6 @@ export async function startNormalBridge(options: NormalBridgeOptions) {
         } catch { /* Foreign, corrupt or missing records are never removed. */ }
         await reservation.close();
         await unlink(reservationPath);
-        await unlink(temporary).catch(() => undefined);
       })();
     },
   };

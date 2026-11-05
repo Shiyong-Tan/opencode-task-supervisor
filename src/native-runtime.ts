@@ -27,13 +27,14 @@ async function createRuntime(normal: Normal, directory: string, origin: string, 
     if (disposed || work) return;
     work = (async () => {
       bridge ??= await startNormalPlugin(normal, api, view, todos);
-      await bridge.tick(); await tracked?.tick(); await supervisor.tick();
+      if (disposed) { await bridge.close(); return; }
+      await tracked?.tick(); await supervisor.tick();
     })().catch(error => console.error(JSON.stringify({ source: 'OpenCodeTaskSupervisor', kind: 'v2-monitor-failure', error: String(error) })))
       .finally(() => { work = undefined; });
   }, 1000);
   timer.unref();
   return { api, supervisor, tracked, todos, view, references: 0,
-    async dispose() { disposed = true; clearInterval(timer); await work; await Promise.allSettled([bridge?.close(), tracked?.dispose()]); } };
+    async dispose() { disposed = true; clearInterval(timer); const closing = bridge?.close().catch(() => undefined); await work; await Promise.allSettled([closing, tracked?.dispose()]); } };
 }
 
 /** One registry, process owner and bridge for an authenticated physical workspace.

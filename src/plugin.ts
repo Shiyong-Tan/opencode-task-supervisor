@@ -60,7 +60,6 @@ const plugin: Plugin = async ({ serverUrl, directory }, options) => {
     if (disposed || ticking) return;
     ticking = true;
     void (async () => {
-      await normalRuntime?.tick();
       await managed?.tick();
       await tracked?.tick();
       await supervisor.tick();

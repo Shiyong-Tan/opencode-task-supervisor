@@ -214,3 +214,13 @@ monitoring path comparison: resolved Windows paths ignore case; POSIX paths keep
 case. Exact parent session identity and foreign workspace rejection are retained.
 This does not dispatch or retry existing tasks automatically. Update the plugin
 and reload OpenCode after active tasks finish; running plugins are not hot-updated.
+
+
+## GUI discovery lease recovery
+
+The plugin renews its signed GUI discovery lease independently of task and process
+monitoring. A slow monitor cannot block the bridge heartbeat. Atomic lease writes
+use unique temporary files and clean up their own failed publication, so a transient
+Windows replacement failure or an old temporary file cannot permanently block
+renewal. Expired or foreign leases still fail closed. Renewal diagnostics contain
+fixed failure codes only; they never expose launch keys or bearer tokens.

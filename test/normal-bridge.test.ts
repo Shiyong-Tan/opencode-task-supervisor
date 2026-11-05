@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startNormalBridge } from '../src/normal-bridge.ts';
@@ -66,5 +66,32 @@ test('normal bridge cleanup never deletes substituted discovery evidence', async
       binding: { integrationId: '22'.repeat(32), serviceId: '33'.repeat(32), workspace: 'd:/trial', serviceOrigin: 'http://127.0.0.1:42001' },
       snapshot: async () => ({}), now: () => 1_000 }));
     assert.equal(await readFile(bridge.file, 'utf8'), '{"foreign":true}');
+  } finally { await bridge.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('failed lease replacement cleans its own temp and a stale legacy temp cannot poison recovery', async () => {
+  const lab = join(process.cwd(), '.lab'); await mkdir(lab, { recursive: true });
+  const directory = await realpath(await mkdtemp(join(lab, 'lease-replace-')));
+  const binding = { integrationId: '11'.repeat(32), serviceId: '22'.repeat(32), workspace: 'd:/trial', serviceOrigin: 'http://127.0.0.1:42001' };
+  const launchKey = '33'.repeat(32); let now = 1000, replacements = 0;
+  const bridge = await startNormalBridge({ binding, launchKey, directory, openCodeVersion: '2.0.31',
+    now: () => now, snapshot: async () => ({}), replaceFile: async (from, to) => {
+      if (++replacements === 2) throw Object.assign(new Error('simulated busy destination'), { code: 'EPERM' });
+      await rename(from, to);
+    } });
+  const stale = `${binding.serviceId}.json.${bridge.instanceId}.tmp`;
+  try {
+    await writeFile(join(directory, stale), 'existing evidence');
+    now = 21000;
+    await assert.rejects(bridge.renew(), { code: 'EPERM' });
+    assert.deepEqual((await readdir(directory)).filter(name => name.endsWith('.tmp')), [stale]);
+    const old = JSON.parse(await readFile(bridge.file, 'utf8')) as SignedConnectionLease;
+    assert.equal(old.payload.issuedAt, 1000);
+    now = 81000; // Recovery must also work after the published lease expires.
+    await bridge.renew();
+    const fresh = verifyConnectionLease(JSON.parse(await readFile(bridge.file, 'utf8')), binding, launchKey, now);
+    assert.equal(fresh.issuedAt, now); assert.equal(fresh.instanceId, bridge.instanceId);
+    assert.equal(await readFile(join(directory, stale), 'utf8'), 'existing evidence');
   } finally { await bridge.close(); await rm(directory, { recursive: true, force: true }); }
 });

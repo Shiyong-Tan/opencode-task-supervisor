@@ -41,14 +41,31 @@ export async function startNormalPlugin(normal: Awaited<ReturnType<typeof prepar
       if (await api.verifyCompatibility(signal) !== openCodeVersion) throw new Error('OpenCode service identity changed');
       return encodeNormalView({ ...view.snapshot(parent), ...(todos ? { todos: await todos.read(parent) } : {}) }, launch.binding.serviceId);
     } });
-  let renewedAt = Date.now();
+  let renewedAt = Date.now(), closed = false, lastFailure = '';
+  let renewing: Promise<void> | undefined;
+  const maintainLease = () => {
+    const now = Date.now();
+    if (closed || renewing || (now - renewedAt < 20_000 && now >= renewedAt)) return;
+    renewing = bridge.renew().then(() => {
+      renewedAt = Date.now();
+      if (lastFailure) console.error(JSON.stringify({ source: 'OpenCodeTaskSupervisor', kind: 'lease_renewal_recovered' }));
+      lastFailure = '';
+    }).catch(error => {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      const reason = typeof code === 'string' && ['EACCES', 'EPERM', 'EBUSY', 'EEXIST', 'ENOENT'].includes(code) ? code : 'renew_failed';
+      if (reason !== lastFailure) console.error(JSON.stringify({ source: 'OpenCodeTaskSupervisor', kind: 'lease_renewal_failed', reason }));
+      lastFailure = reason;
+    }).finally(() => { renewing = undefined; });
+  };
+  // Discovery heartbeat cannot depend on process sampling, API waits or task
+  // monitoring finishing. It proves bridge liveness, never task progress.
+  const heartbeat = setInterval(maintainLease, 5000);
+  heartbeat.unref();
   return {
-    async tick() {
-      const now = Date.now();
-      if (now - renewedAt < 20_000 && now >= renewedAt) return;
-      await bridge.renew();
-      renewedAt = now;
+    async close() {
+      closed = true; clearInterval(heartbeat);
+      await renewing;
+      await bridge.close();
     },
-    close: () => bridge.close(),
   };
 }
