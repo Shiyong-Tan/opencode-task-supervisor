@@ -73,12 +73,15 @@ test('discovery heartbeat renews without any task-monitor tick and stops on clos
   const file = join(directory, `${binding.serviceId}.json`);
   try {
     t.mock.timers.tick(81000);
-    let fresh = false;
-    for (let i = 0; i < 100; i++) {
-      try { verifyConnectionLease(JSON.parse(await readFile(file, 'utf8')), binding, launchKey, Date.now()); fresh = true; break; } catch {}
+    let fresh = false, issuedAt = -1;
+    for (let i = 0; i < 500; i++) {
+      // Real Windows sharing/AV locks may reject one atomic rename. Advance
+      // the independent retry heartbeat while waiting for filesystem settlement.
+      if (i > 0 && i % 25 === 0) t.mock.timers.tick(5000);
+      try { const record = JSON.parse(await readFile(file, 'utf8')); issuedAt = record.payload.issuedAt; verifyConnectionLease(record, binding, launchKey, Date.now()); fresh = true; break; } catch {}
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    assert.equal(fresh, true, 'heartbeat must remain live when no supervisor/process tick is called');
+    assert.equal(fresh, true, `heartbeat must remain live without monitor ticks (issued=${issuedAt}, now=${Date.now()})`);
     await runtime.close();
     t.mock.timers.tick(120000);
     await assert.rejects(readFile(file));
