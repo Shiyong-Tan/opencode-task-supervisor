@@ -216,7 +216,7 @@ This does not dispatch or retry existing tasks automatically. Update the plugin
 and reload OpenCode after active tasks finish; running plugins are not hot-updated.
 
 
-## GUI discovery lease recovery
+## GUI discovery lease recovery (Supervisor 0.1.17)
 
 The plugin renews its signed GUI discovery lease independently of task and process
 monitoring. A slow monitor cannot block the bridge heartbeat. Atomic lease writes

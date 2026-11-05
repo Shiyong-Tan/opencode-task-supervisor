@@ -260,3 +260,18 @@ GitHub latest confirmed v0.1.16. Main/source/package tags pushed; unstaged
 notification identity edits excluded. GUI version is unchanged. No production
 configuration changes, dispatches, restarts or model calls. Existing pinned
 v0.1.15 configuration and running services are not changed by publication.
+
+
+# Supervisor 0.1.17 release preparation (2026-11-05)
+
+Fix failed normal GUI discovery-lease publication permanently blocking later
+renewals on Windows. Atomic writes use unique temporary files and clean only
+their own failed writes. A dedicated single-flight heartbeat renews independently
+of task/process monitoring. Expired and foreign identities still fail closed;
+fixed failure/recovery diagnostics contain no keys or bearer tokens.
+
+A production stale temporary file was backed up and reversibly quarantined under
+separate repair authorization; the same service/instance resumed valid lease
+publication without a restart or task interruption. Publication itself does not
+change production configuration or restart services. Build the release from a
+clean Git archive, excluding unrelated notification-identity working-copy changes.

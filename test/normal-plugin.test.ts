@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pluginVersion } from '../src/plugin-version.ts';
 import { prepareNormalPlugin, startNormalPlugin } from '../src/normal-plugin.ts';
 import { canonicalWindowsWorkspace, serviceAuthenticationProof, verifyConnectionLease } from '../src/normal-connection-protocol.ts';
 import { ViewProjection } from '../src/view-projection.ts';
@@ -67,7 +68,7 @@ test('discovery heartbeat renews without any task-monitor tick and stops on clos
   const launch = { schemaVersion: 1 as const, kind: 'normal-gui-launch' as const, binding, launchKey,
     identityKey: '44'.repeat(32), privateDirectory: directory, authenticationProof: 'unused fixture' };
   const clock = new FakeClock();
-  const view = new ViewProjection(new Registry(clock), clock, { isolationId: binding.integrationId, pluginVersion: '0.1.16', openCodeVersion: '2.0.31' }, undefined, undefined, undefined, undefined, '55'.repeat(32));
+  const view = new ViewProjection(new Registry(clock), clock, { isolationId: binding.integrationId, pluginVersion, openCodeVersion: '2.0.31' }, undefined, undefined, undefined, undefined, '55'.repeat(32));
   const runtime = await startNormalPlugin({ launch } as Awaited<ReturnType<typeof prepareNormalPlugin>>,
     { verifyVersion: async () => '2.0.31', verifyCompatibility: async () => '2.0.31' }, view);
   const file = join(directory, `${binding.serviceId}.json`);
