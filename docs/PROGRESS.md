@@ -275,3 +275,18 @@ separate repair authorization; the same service/instance resumed valid lease
 publication without a restart or task interruption. Publication itself does not
 change production configuration or restart services. Build the release from a
 clean Git archive, excluding unrelated notification-identity working-copy changes.
+
+
+Published stable v0.1.17:
+https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.17.
+Source 7a7b06f24349193e2dec0c4b7c516b3e53cdf6fa; compiled distribution
+140f6bf80b9687a4225f1bca68bf4e0347974546 (package-v0.1.17).
+Clean-source typecheck, Windows build, 182/182 tests and npm-pack validation
+passed. Public unauthenticated latest resolution returns v0.1.17; fresh public
+downloads of all three assets match local bytes. Archive SHA256:
+c783989c4738334e77ad0123355e7481c2a0350384ad804c9d583b1a6466dc5c.
+Source main, version tag and compiled installation tag are pushed. Unrelated
+notification-identity working-copy changes are excluded. No GUI version change,
+production plugin/configuration replacement, service restart or model call is
+part of publication. Existing running services still need an idle-time plugin
+update and OpenCode restart. Linux/macOS live acceptance was not repeated.
