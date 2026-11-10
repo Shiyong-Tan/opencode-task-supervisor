@@ -290,3 +290,25 @@ notification-identity working-copy changes are excluded. No GUI version change,
 production plugin/configuration replacement, service restart or model call is
 part of publication. Existing running services still need an idle-time plugin
 update and OpenCode restart. Linux/macOS live acceptance was not repeated.
+
+
+# Bounded V2 dispatch preparation and monitoring (2026-11-10)
+
+Two reported registered attempts retained registered/not_sent tool records after
+V2 monitoring response bound failures. Preparation previously scanned 200-record
+parent transcript pages to locate an already-known caller ID. It now reads the
+exact scoped message and verifies ID, caller agent/role and any explicit owner.
+The native scoped DTO may omit a redundant sessionID; an explicit foreign owner
+is still rejected. Model, ancestry, workspace and permission checks remain.
+
+Read-only observation shrinks oversized transcript pages at the same cursor.
+Only accepted pages contribute data; a single oversized record and pagination
+exhaustion remain errors. Mutation response limits never trigger a retry. Errors
+include a redacted method/endpoint classification, with no response content.
+
+The original callers for both supplied attempts passed the repaired preparation
+against the selected live service under a GET-only transport. No child was
+created or dispatched, no process started/cancelled, and no model was called.
+Native fallback subagents still cannot use managed process tools without a
+registered task. This does not establish that unrelated fallback executions or
+other attempts have stopped. Source repair only; publication is separate.

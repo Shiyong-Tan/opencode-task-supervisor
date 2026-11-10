@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { V2ObservationApi } from '../src/v2-observation-api.ts';
+import { V2ObservationApi, V2ResponseBoundError } from '../src/v2-observation-api.ts';
 
 const data = (value: unknown) => Response.json({ data: value });
 const signal = () => new AbortController().signal;
@@ -13,6 +13,7 @@ function harness(overrides: Record<string, unknown> = {}) {
       assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error');
       const url = new URL(String(input)); calls.push(url.pathname + url.search);
       const value = overrides[url.pathname + url.search] ?? overrides[url.pathname];
+      if (typeof value === 'function') return (value as () => Response)();
       if (value instanceof Response) return value.clone();
       if (value !== undefined) return Response.json(value);
       if (url.pathname === '/api/session/ses_child') return data(info);
@@ -71,4 +72,35 @@ test('queued native input blocks terminal and safe cancellation evidence after i
 test('a foreign inbox row never establishes cancellation safety', async () => {
   const f = harness({ '/api/session/ses_child/inbox': { data: [{ id: 'msg_foreign', sessionID: 'ses_other', delivery: 'queue' }] } });
   await assert.rejects(f.api.observe('ses_child', signal()), /ownership/);
+});
+
+
+test('oversized monitoring pages shrink at the same cursor without replaying accepted messages', async () => {
+  const pages: { cursor: string | null; limit: number }[] = [];
+  const api = new V2ObservationApi({ baseUrl: 'http://127.0.0.1:42000', directory: '/fixture', authorization: 'Basic fixture', isCurrent: () => true,
+    fetch: async (input, init) => {
+      assert.equal(init?.method, 'GET');
+      const url = new URL(String(input));
+      if (url.pathname === '/api/session/ses_child') return data(info);
+      if (url.pathname.endsWith('/message')) {
+        const cursor = url.searchParams.get('cursor'), limit = Number(url.searchParams.get('limit')); pages.push({ cursor, limit });
+        if (limit > (cursor ? 25 : 50)) return new Response(' '.repeat(8 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'application/json' } });
+        return Response.json({ data: cursor ? [msg('msg_idle', 'idle', { outcome: 'succeeded' })] :
+          [msg('msg_answer', 'assistant', { content: [{ type: 'text', text: 'One complete answer' }] })], cursor: { next: cursor ? null : 'opaque' } });
+      }
+      return data(url.pathname.endsWith('/active') ? {} : []);
+    } });
+  const result = await api.observe('ses_child', signal());
+  assert.equal(result.result?.text, 'One complete answer');
+  assert.deepEqual(pages, [{ cursor: null, limit: 200 }, { cursor: null, limit: 100 }, { cursor: null, limit: 50 },
+    { cursor: 'opaque', limit: 50 }, { cursor: 'opaque', limit: 25 }]);
+});
+
+test('one oversized record retains a hard bound and redacted endpoint diagnostics rather than partial success', async () => {
+  const f = harness({ '/api/session/ses_child/message': () => new Response(' '.repeat(8 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'application/json' } }) });
+  await assert.rejects(f.api.observe('ses_child', signal()), error => error instanceof V2ResponseBoundError
+    && error.method === 'GET' && /GET \/api\/session\/:session\/message/.test(error.message) && !error.message.includes('ses_child'));
+  assert.deepEqual(f.calls.filter(path => path.includes('/message')).map(path => new URL(path, 'http://fixture').searchParams.get('limit')),
+    ['200', '100', '50', '25', '12', '6', '3', '1']);
+  assert.ok(!f.calls.some(path => path.endsWith('/active')));
 });

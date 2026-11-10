@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { V2ResponseBoundError } from '../src/v2-observation-api.ts';
 import { OpenCodeV2Api } from '../src/opencode-v2-api.ts';
 import type { AgentDispatch } from '../src/agent-dispatch.ts';
 
@@ -46,10 +47,11 @@ test('native role preparation verifies caller, catalog, inherited deny rules and
     if (url.pathname === '/api/agent') return Response.json({ data: [{ id: 'reviewer', mode: 'subagent', permissions: [], model: { providerID: 'provider', id: 'model', variant: 'high' } }] });
     if (url.pathname === '/api/model') return Response.json({ data: [{ providerID: 'provider', id: 'model', enabled: true, variants: [{ id: 'high' }] }] });
     if (url.pathname === '/api/config') return Response.json([{ type: 'document', info: { experimental: { subagent_depth: 1 } } }]);
-    if (url.pathname.endsWith('/message')) return Response.json({ data: [{ id: 'msg_caller', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'parent-model' } }], cursor: {} });
+    if (url.pathname.endsWith('/message/msg_caller')) return Response.json({ data: { id: 'msg_caller', sessionID: 'ses_parent', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'parent-model' } } });
     return Response.json({ data: { id: 'ses_parent', location: { directory: '/fixture' }, permissions: [{ action: 'shell', resource: 'danger*', effect: 'deny' }] } });
   });
   const result = await f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal());
+  assert.ok(!f.calls.some(call => call.path.split('?')[0]!.endsWith('/message')));
   assert.equal(result.model.modelID, 'model'); assert.equal(result.variant, 'high');
   assert.ok(result.permission.some(rule => rule.permission === 'shell' && rule.action === 'deny'));
   assert.ok(result.permission.some(rule => rule.permission === 'supervisor_dispatch' && rule.action === 'deny'));
@@ -69,11 +71,49 @@ test('parent scope uses platform path semantics while retaining exact session id
       if (url.pathname === '/api/agent') return Response.json({ data: [{ id: 'reviewer', mode: 'subagent', permissions: [], model: { providerID: 'provider', id: 'model' } }] });
       if (url.pathname === '/api/model') return Response.json({ data: [{ providerID: 'provider', id: 'model', enabled: true, variants: [] }] });
       if (url.pathname === '/api/config') return Response.json([]);
-      if (url.pathname.endsWith('/message')) return Response.json({ data: [{ id: 'msg_caller', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'model' } }], cursor: {} });
+      if (url.pathname.endsWith('/message/msg_caller')) return Response.json({ data: { id: 'msg_caller', sessionID: 'ses_parent', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'model' } } });
       return Response.json({ data: { id, location: { directory: parentDirectory }, permissions: [] } });
     }, directory);
     if (allowed) await f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal());
     else await assert.rejects(f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal()), /parent scope mismatch/);
     assert.ok(f.calls.every(call => call.method === 'GET'));
   }
+});
+
+
+function preparationFixture(caller: Record<string, unknown>) {
+  return harness(url => {
+    if (url.pathname === '/api/agent') return Response.json({ data: [{ id: 'reviewer', mode: 'subagent', permissions: [] }] });
+    if (url.pathname === '/api/config') return Response.json([]);
+    if (url.pathname === '/api/model') return Response.json({ data: [{ providerID: 'provider', id: 'model', enabled: true, variants: [] }] });
+    if (url.pathname === '/api/session/ses_parent') return Response.json({ data: { id: 'ses_parent', location: { directory: '/fixture' }, permissions: [] } });
+    if (url.pathname.endsWith('/message/msg_caller')) return Response.json({ data: caller });
+    // Old broad history preparation hits this unrelated oversized tool output.
+    if (url.pathname.endsWith('/message')) return new Response(' '.repeat(8 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'application/json' } });
+    throw new Error('Unexpected preparation request');
+  });
+}
+const caller = { id: 'msg_caller', type: 'assistant', agent: 'researcher', model: { providerID: 'provider', id: 'model' } };
+
+test('dispatch preparation reads only the exact caller even when unrelated history exceeds the response limit', async () => {
+  const f = preparationFixture(caller);
+  assert.equal((await f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal())).model.modelID, 'model');
+  assert.equal(f.calls.filter(call => call.path.includes('/message/')).length, 1);
+  assert.ok(!f.calls.some(call => call.path.split('?')[0]!.endsWith('/message')));
+  assert.ok(f.calls.every(call => call.method === 'GET'));
+});
+
+test('exact caller lookup rejects foreign identity, session, role and agent without creating a child', async () => {
+  for (const patch of [{ id: 'msg_other' }, { sessionID: 'ses_other' }, { type: 'user' }, { agent: 'imposter' }]) {
+    const f = preparationFixture({ ...caller, ...patch });
+    await assert.rejects(f.api.prepare('ses_parent', 'msg_caller', 'researcher', 'reviewer', signal()), /caller identity/);
+    assert.ok(f.calls.every(call => call.method === 'GET'));
+  }
+});
+
+test('an oversized mutation reply stays uncertain and is never retried', async () => {
+  const f = harness(() => new Response(' '.repeat(8 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'application/json' } }));
+  await assert.rejects(f.api.dispatch('ses_child', 'Do not repeat this admission', signal()), error =>
+    error instanceof V2ResponseBoundError && error.method === 'POST' && /POST \/api\/session\/:session\/prompt/.test(error.message));
+  assert.equal(f.calls.length, 1);
 });

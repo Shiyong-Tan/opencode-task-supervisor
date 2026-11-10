@@ -95,19 +95,12 @@ export class OpenCodeV2Api extends V2ObservationApi implements Api {
       current = object(object(await this.read(`/api/session/${sid(id)}`, signal)).data);
       if (current.id !== id) throw new Error('Native ancestor identity mismatch');
     }
-    let cursor: string | undefined, callerMessage: ObjectValue | undefined;
-    const seen = new Set<string>();
-    for (let page = 0; page < 128; page++) {
-      const query = new URLSearchParams({ limit: '200' }); if (cursor) query.set('cursor', cursor); else query.set('order', 'desc');
-      const response = object(await this.read(`/api/session/${sid(parentSessionId)}/message?${query}`, signal));
-      callerMessage = array(response.data).map(object).find(item => item.id === messageId);
-      if (callerMessage) break;
-      const next = object(response.cursor).next;
-      if (next == null) break;
-      if (typeof next !== 'string' || seen.has(next)) throw new Error('Invalid caller transcript cursor');
-      seen.add(next); cursor = next;
-    }
-    if (!callerMessage || callerMessage.type !== 'assistant' || callerMessage.agent !== caller) throw new Error('Native caller identity mismatch');
+    if (!/^msg_[A-Za-z0-9_-]{1,240}$/.test(messageId)) throw new Error('Invalid native caller message identity');
+    // The trusted tool context already identifies one caller. Unrelated transcript
+    // content is neither required nor safe to fetch just to verify its role/model.
+    const callerMessage = object(object(await this.read(`/api/session/${sid(parentSessionId)}/message/${encodeURIComponent(messageId)}`, signal)).data);
+    if (callerMessage.id !== messageId || callerMessage.sessionID !== undefined && callerMessage.sessionID !== parentSessionId
+      || callerMessage.type !== 'assistant' || callerMessage.agent !== caller) throw new Error('Native caller identity mismatch');
     const ref = object(selected.model ?? callerMessage.model);
     if (typeof ref.providerID !== 'string' || typeof ref.id !== 'string' || ref.variant !== undefined && typeof ref.variant !== 'string') throw new Error('Invalid native child model');
     const models = array(object(await this.read('/api/model' + scoped, signal)).data).map(object);

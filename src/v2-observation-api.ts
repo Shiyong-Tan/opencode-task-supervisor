@@ -13,6 +13,14 @@ function list(value: unknown): unknown[] {
   return value;
 }
 
+/** Retriable only for read-only pagination, never for a mutation response. */
+export class V2ResponseBoundError extends Error {
+  constructor(readonly method: 'GET' | 'POST', path: string) {
+    const route = path.split('?')[0]!.replace(/ses_[A-Za-z0-9_-]+/g, ':session').replace(/msg_[A-Za-z0-9_-]+/g, ':message');
+    super(`V2 monitoring response bound exceeded (${method} ${route}; 8 MiB)`);
+  }
+}
+
 /** Read-only monitoring side of the native V2 port; mutations belong to the V2 plugin entrypoint. */
 export class V2ObservationApi {
   private readonly origin: string;
@@ -50,7 +58,7 @@ export class V2ObservationApi {
         const item = await reader.read(); bound.throwIfAborted(); this.current(signal);
         if (item.done) break;
         size += item.value.byteLength;
-        if (size > 8 * 1024 * 1024) throw new Error('V2 monitoring response bound exceeded');
+        if (size > 8 * 1024 * 1024) throw new V2ResponseBoundError(method, path);
         chunks.push(item.value);
       }
       return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
@@ -74,13 +82,25 @@ export class V2ObservationApi {
     if (session.id !== sessionId) throw new Error('V2 session identity mismatch');
     const directory = record(session.location).directory;
     if (!this.matchesWorkspace(directory)) throw new Error('V2 session workspace mismatch');
-    const messages: unknown[] = [], seen = new Set<string>(); let cursor: string | undefined;
+    const messages: unknown[] = [], seen = new Set<string>(); let cursor: string | undefined, limit = 200, smallPages = 0;
     for (let page = 0; ; page++) {
       if (page >= 128) throw new Error('V2 transcript exceeds observation pagination bound');
-      const query = new URLSearchParams({ limit: '200' });
+      const query = new URLSearchParams({ limit: String(limit) });
       if (cursor === undefined) query.set('order', 'asc'); else query.set('cursor', cursor);
-      const response = record(await this.read(`${path}/message?${query}`, signal));
+      let response: RecordValue;
+      while (true) {
+        query.set('limit', String(limit));
+        try { response = record(await this.read(`${path}/message?${query}`, signal)); break; }
+        catch (error) {
+          // Retry the SAME read cursor only. No create/prompt/interrupt is retried.
+          if (!(error instanceof V2ResponseBoundError) || error.method !== 'GET' || limit === 1) throw error;
+          limit = Math.max(1, Math.floor(limit / 2)); smallPages = 0;
+        }
+      }
       messages.push(...list(response.data));
+      if (Buffer.byteLength(JSON.stringify(response.data)) < 2 * 1024 * 1024 && ++smallPages >= 16) {
+        limit = Math.min(200, limit * 2); smallPages = 0;
+      }
       const next = record(response.cursor).next;
       if (next === undefined || next === null) break;
       if (typeof next !== 'string' || !next || seen.has(next)) throw new Error('Invalid V2 transcript cursor');

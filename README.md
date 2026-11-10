@@ -224,3 +224,15 @@ use unique temporary files and clean up their own failed publication, so a trans
 Windows replacement failure or an old temporary file cannot permanently block
 renewal. Expired or foreign leases still fail closed. Renewal diagnostics contain
 fixed failure codes only; they never expose launch keys or bearer tokens.
+
+
+## Large native V2 transcripts
+
+Dispatch preparation verifies the exact caller message instead of scanning pages
+of unrelated parent transcript content. Native monitoring shrinks oversized
+read-only transcript pages at the same cursor, preserving accepted page order and
+existing ownership checks. The 8 MiB per-response and 128-page bounds remain; a
+single oversized record fails explicitly with a redacted endpoint classification.
+Mutation responses are never retried automatically. Process tools still require
+a registered Supervisor child task; native subagent fallback does not bypass this
+execution ownership boundary.
