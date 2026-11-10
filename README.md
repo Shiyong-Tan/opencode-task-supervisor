@@ -226,7 +226,7 @@ renewal. Expired or foreign leases still fail closed. Renewal diagnostics contai
 fixed failure codes only; they never expose launch keys or bearer tokens.
 
 
-## Large native V2 transcripts
+## Large native V2 transcripts (Supervisor 0.1.18)
 
 Dispatch preparation verifies the exact caller message instead of scanning pages
 of unrelated parent transcript content. Native monitoring shrinks oversized

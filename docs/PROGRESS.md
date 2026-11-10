@@ -312,3 +312,12 @@ created or dispatched, no process started/cancelled, and no model was called.
 Native fallback subagents still cannot use managed process tools without a
 registered task. This does not establish that unrelated fallback executions or
 other attempts have stopped. Source repair only; publication is separate.
+
+
+# Supervisor 0.1.18 release preparation (2026-11-10)
+
+Publish the bounded V2 dispatch preparation and adaptive monitoring repair from
+993bfa5. Package from a clean Git archive, excluding unrelated working-copy
+notification identity changes. Preserve the 8 MiB response bound, mutation
+non-retry policy and registered-child process ownership. GUI version and protocol
+schemas remain unchanged; publication does not mutate tasks or restart services.
