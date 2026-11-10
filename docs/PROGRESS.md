@@ -321,3 +321,16 @@ Publish the bounded V2 dispatch preparation and adaptive monitoring repair from
 notification identity changes. Preserve the 8 MiB response bound, mutation
 non-retry policy and registered-child process ownership. GUI version and protocol
 schemas remain unchanged; publication does not mutate tasks or restart services.
+
+
+Published stable v0.1.18:
+https://github.com/Shiyong-Tan/opencode-task-supervisor/releases/tag/v0.1.18.
+Source 31aaee3ff4823f6b7fb584671abdcc222bf1303a; compiled installation
+3f6234c1be177f225f468f06a58f8e6d44fa12b9 (package-v0.1.18).
+Clean-source typecheck, Windows build, 187/187 tests and package comparisons
+passed. Public latest resolves v0.1.18; all three fresh public asset downloads
+match local bytes. Archive SHA256:
+e2fca9f648be1431628030a4972da7d372b9d85e9a0e3349e2e00a3048ccc516.
+Main/source/installation tags pushed; unrelated notification-identity edits
+excluded. GUI version and installed production configuration unchanged. No task
+redispatch, process launch, model call or service restart during publication.
