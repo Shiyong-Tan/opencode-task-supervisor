@@ -1,0 +1,41 @@
+import type { Clock, Identity, Snapshot, Task } from './types.ts';
+export declare class Registry {
+    private readonly clock;
+    readonly staleMs: number;
+    private readonly tasks;
+    private readonly children;
+    constructor(clock: Clock, staleMs?: number);
+    register(parentSessionId: string, taskId?: string): Task;
+    get(taskId: string, owner: string): Task;
+    all(): Task[];
+    current(id: Identity): Task | undefined;
+    attach(task: Task, child: string): void;
+    apply(id: Identity, snapshot: Snapshot): void;
+    queryFailed(id: Identity, reason: string): void;
+}
+export declare function report(task: Task): {
+    safeToRetry: boolean;
+    recovery: string;
+    questionIds?: string[];
+    permissions?: import("./types.ts").PermissionEvidence[];
+    permissionObservation?: "current" | "unavailable";
+    agent?: string;
+    title?: string;
+    delivery: "inline" | "notification";
+    stallReports?: number;
+    stoppedAfterCancel?: boolean;
+    phase: import("./types.ts").Phase;
+    health: import("./types.ts").Health;
+    createdAt: number;
+    lastProgressAt: number;
+    lastCheckedAt?: number;
+    process: Snapshot["process"];
+    outcome?: "completed" | "failed";
+    reason?: string;
+    dispatch: "not_sent" | "pending" | "accepted" | "unknown";
+    cancellation: "none" | "requested" | "acknowledged" | "unknown";
+    taskId: string;
+    attemptId: string;
+    parentSessionId: string;
+    childSessionId?: string;
+};

@@ -1,0 +1,78 @@
+import { type TodoState } from './todo-protocol.ts';
+/** Only a bounded display title is allowed; prompts, commands and output stay private. */
+type Parser<T> = (value: unknown) => T;
+declare const envelope: Parser<{
+    schemaVersion: 1;
+    isolationId: string;
+    instanceId: string;
+    revision: number;
+    pluginVersion: string;
+    openCodeVersion: string;
+    observedAt: string;
+    parentSessionId: string;
+    scope: "isolated_allowlisted_commands";
+    tasks: {
+        title: string | null;
+        phase: "registered" | "dispatching" | "active" | "terminal" | "unknown";
+        health: "running" | "waiting_permission" | "waiting_question" | "suspected_stall" | "unreachable" | "ended" | "cancel_unknown" | "unknown";
+        outcome: "completed" | "failed" | "unknown" | null;
+        lastObservationAgeMs: number | null;
+        lastProgressAgeMs: number;
+        taskId: string;
+        attemptId: string;
+        parentSessionId: string;
+        childSessionId: string | null;
+    }[];
+    executions: {
+        childSessionId: string;
+        executionId: string;
+        toolCallId: string;
+        displayName: string | null;
+        rootPid: number | null;
+        activeProcesses: number | null;
+        durationMs: number | null;
+        cpuPercent: number | null;
+        workingSetBytes: string | null;
+        exitCode: number | null;
+        phase: "running" | "waiting_permission" | "unknown" | "starting" | "stopped" | "start_failed" | "permission_denied";
+        health: "running" | "waiting_permission" | "unknown" | "stopped" | "suspect";
+        lastObservationAgeMs: number | null;
+        lastActivityAgeMs: number;
+        rootExited: boolean | null;
+        ownedProcessesStopped: boolean | null;
+        cpu100ns: string | null;
+        cpuDelta100ns: string | null;
+        readBytes: string | null;
+        writeBytes: string | null;
+        readDeltaBytes: string | null;
+        writeDeltaBytes: string | null;
+        cancelRequested: boolean;
+        requestAccepted: boolean | null;
+        cancelOutcomeUnknown: boolean;
+        coverageUnknown: boolean;
+        safeToRetry: false;
+        taskId: string;
+        attemptId: string;
+        parentSessionId: string;
+    }[];
+    notifications: {
+        childSessionId: string;
+        notificationId: string;
+        eventId: string;
+        messageId: string | null;
+        delivery: "unknown" | "queued" | "submitting" | "submitted" | "received";
+        progress: "unknown" | "not_observed" | "activity_observed" | "result_read";
+        escalated: boolean;
+        queueAgeMs: number | null;
+        activityWaitAgeMs: number | null;
+        taskId: string;
+        attemptId: string;
+        parentSessionId: string;
+    }[];
+    notificationIdentities: import("./notification-identity-protocol.ts").NotificationIdentity[];
+}>;
+export type SupervisorView = ReturnType<typeof envelope> & {
+    todos?: TodoState;
+};
+export declare function parseSupervisorView(value: unknown): SupervisorView;
+export {};
